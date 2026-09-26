@@ -1,0 +1,31 @@
+{
+  "name": "karanam",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "In-hand salary & cashflow estimator for Indian offer letters (new tax regime). Offline PWA.",
+  "scripts": {
+    "predev": "node scripts/copy-ocr.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/copy-ocr.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "mammoth": "^1.12.3",
+    "pdfjs-dist": "^6.3.289",
+    "preact": "^10.29.8",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@preact/preset-vite": "^2.10.6",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^5.0.2"
+  }
+}

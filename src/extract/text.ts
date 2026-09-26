@@ -4,7 +4,7 @@ import { ocrImage, type Progress } from './ocr';
 async function pdfText(file: Blob, onProgress?: Progress): Promise<string> {
   const pdfjs = await import('pdfjs-dist');
   const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
-  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(workerUrl, document.baseURI).href;
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
   const pages: string[] = [];
   for (let p = 1; p <= doc.numPages; p++) {

@@ -118,18 +118,12 @@ export function App() {
           </div>
         </div>
         {st.step !== 'upload-next' && (
-          <button
-            type="button"
-            class="btn ghost small"
-            onClick={() => {
-              if (confirm('Start over? Everything you entered will be cleared.')) {
-                clearSaved();
-                setSt(initialState());
-              }
+          <StartOver
+            onConfirm={() => {
+              clearSaved();
+              setSt(initialState());
             }}
-          >
-            Start over
-          </button>
+          />
         )}
       </header>
       <div class="progressbar" aria-hidden="true">
@@ -349,6 +343,21 @@ export function App() {
         )}
       </main>
     </div>
+  );
+}
+
+/** Two-tap reset (no browser confirm dialog, which embedded views block). */
+function StartOver({ onConfirm }: { onConfirm: () => void }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <button type="button" class={`btn small ${armed ? 'danger' : 'ghost'}`} onClick={() => (armed ? onConfirm() : setArmed(true))}>
+      {armed ? 'Tap again to clear' : 'Start over'}
+    </button>
   );
 }
 

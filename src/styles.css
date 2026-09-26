@@ -27,7 +27,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     color-scheme: dark;
     --bg: #131312;
     --surface: #1a1a19;
@@ -50,6 +50,29 @@
     --grid: #2c2b28;
     --shadow: none;
   }
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #131312;
+  --surface: #1a1a19;
+  --surface-2: #242422;
+  --border: #34332f;
+  --text: #ffffff;
+  --text-2: #c3c2b7;
+  --muted: #97968c;
+  --accent: #5b9bea;
+  --accent-ink: #0b0b0b;
+  --accent-soft: #1d2b3d;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --good: #5fcf8b;
+  --good-soft: #17301f;
+  --bad: #f07c7c;
+  --bad-soft: #3a1c1c;
+  --warn: #f0c060;
+  --warn-soft: #3a2e12;
+  --grid: #2c2b28;
+  --shadow: none;
 }
 
 * {
@@ -231,6 +254,11 @@ summary:focus-visible {
   background: transparent;
   border-color: transparent;
   color: var(--text-2);
+}
+.btn.danger {
+  background: var(--bad-soft);
+  color: var(--bad);
+  border-color: var(--bad);
 }
 .btn.small {
   min-height: 36px;

@@ -5,9 +5,9 @@
   "type": "module",
   "description": "In-hand salary & cashflow estimator for Indian offer letters (new tax regime). Offline PWA.",
   "scripts": {
-    "predev": "node scripts/copy-ocr.mjs",
+    "predev": "node scripts/copy-ocr.mjs && node scripts/copy-rules.mjs",
     "dev": "vite",
-    "prebuild": "node scripts/copy-ocr.mjs",
+    "prebuild": "node scripts/copy-ocr.mjs && node scripts/copy-rules.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",

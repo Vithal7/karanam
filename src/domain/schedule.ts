@@ -1,9 +1,16 @@
+import { epfCeiling, type Rules, type TaxYearRules } from '../rules';
 import { fyEnd, fyMonths, fyOf, fyStart, daysBetween, maxDate, minDate, monthFactor, monthOf } from './fy';
-import { NEW_REGIME } from './tax';
 import type { Employment, MonthLine, OneTime, Structure } from './types';
 
 export const fixedMonthly = (s: Structure) =>
   s.basic + s.hra + s.special + s.others.reduce((a, o) => a + (o.amount || 0), 0);
+
+/** Employee PF for a full month of this structure in the given wage month. */
+export function epfFor(s: Structure, month: string, rules: Rules): number {
+  if (s.epfMode === 'fixed') return s.epf || 0;
+  if (s.epfMode === 'fullBasic') return rules.epf.rate * s.basic;
+  return rules.epf.rate * Math.min(s.basic, epfCeiling(rules, month));
+}
 
 /** The structure in force in a given month, taking revisions into account. */
 export function structureFor(emp: Employment, month: string): Structure {
@@ -47,10 +54,12 @@ export function variableAsOneTime(emp: Employment): OneTime | null {
  */
 export function buildLines(
   emp: Employment,
-  role: MonthLine['employer'],
+  index: number,
   fy: number,
   thirty: boolean,
   oneTimes: OneTime[],
+  rules: Rules,
+  tax: TaxYearRules,
 ): MonthLine[] {
   const w = window(emp, fy);
   if (!w) return [];
@@ -65,19 +74,17 @@ export function buildLines(
     const hra = s.hra * f;
     const special = s.special * f;
     const others = s.others.reduce((a, o) => a + (o.amount || 0), 0) * f;
-    const epf = s.epf * f;
+    const epf = epfFor(s, month, rules) * f;
     const pt = f > 0 ? s.pt : 0;
     const npsRaw = s.npsPct * basic;
     const nps = s.npsInGross ? npsRaw : 0;
-    const npsDeductible = s.npsInGross ? Math.min(npsRaw, NEW_REGIME.npsCapPctOfBasic * basic) : 0;
-    const recoveries = emp.recoveries
-      .filter((r) => r.month === month)
-      .reduce((a, r) => a + (r.amount || 0), 0);
+    const npsDeductible = s.npsInGross ? Math.min(npsRaw, tax.npsCapPctOfBasic * basic) : 0;
+    const recoveries = emp.recoveries.filter((r) => r.month === month).reduce((a, r) => a + (r.amount || 0), 0);
     const oneTimeLines = ots.map((o) => ({ label: o.label, amount: o.amount, taxable: o.taxable, kind: o.kind }));
     const gross = basic + hra + special + others + oneTimeLines.reduce((a, o) => a + o.amount, 0);
     lines.push({
       month,
-      employer: role,
+      employer: index,
       employerName: emp.name,
       factor: f,
       basic,
@@ -100,8 +107,7 @@ export function buildLines(
 }
 
 export const regularGross = (l: MonthLine) => l.basic + l.hra + l.special + l.others;
-export const taxableOneTimes = (l: MonthLine) =>
-  l.oneTimes.filter((o) => o.taxable).reduce((a, o) => a + o.amount, 0);
+export const taxableOneTimes = (l: MonthLine) => l.oneTimes.filter((o) => o.taxable).reduce((a, o) => a + o.amount, 0);
 export const taxableGross = (l: MonthLine) => regularGross(l) + taxableOneTimes(l);
 
 export function finishLine(l: MonthLine) {

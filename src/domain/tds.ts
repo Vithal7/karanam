@@ -1,5 +1,6 @@
 import { regularGross, taxableOneTimes } from './schedule';
-import { NEW_REGIME, round10, taxOn } from './tax';
+import type { TaxYearRules } from '../rules';
+import { DEFAULT_TAX, round10, taxOn } from './tax';
 import type { MonthLine } from './types';
 
 export interface PreviousIncome {
@@ -36,6 +37,7 @@ export function stageTds(
   lines: MonthLine[],
   known: Record<string, number>,
   prev: PreviousIncome | null,
+  t: TaxYearRules = DEFAULT_TAX,
 ): StageRow[] {
   const regular = lines.reduce((a, l) => a + regularGross(l), 0);
   const npsDed = lines.reduce((a, l) => a + l.npsDeductible, 0);
@@ -46,9 +48,9 @@ export function stageTds(
     const prevIn = prev && prev.knownFrom !== null && prev.knownFrom <= l.month;
     const projectedIncome = regular + oneTimesSoFar + (prevIn ? prev!.taxableGross : 0);
     const taxable = round10(
-      Math.max(0, projectedIncome - NEW_REGIME.standardDeduction - npsDed - (prevIn ? prev!.npsDeductible : 0)),
+      Math.max(0, projectedIncome - t.standardDeduction - npsDed - (prevIn ? prev!.npsDeductible : 0)),
     );
-    const tax = taxOn(taxable).total;
+    const tax = taxOn(taxable, t).total;
     const previousTds = prevIn ? prev!.tds : 0;
     const monthsLeft = lines.length - i;
     const isKnown = known[l.month] !== undefined && known[l.month] !== null && !Number.isNaN(known[l.month]);

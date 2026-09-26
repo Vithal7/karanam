@@ -11,11 +11,14 @@ const st = (basic: number, hra: number, special: number, epf: number, pt: number
   hra,
   special,
   others: [],
+  epfMode: 'fixed',
   epf,
   pt,
   npsPct,
   npsInGross: true,
 });
+
+const job = (id: string) => ({ id, form12B: 'second' as const, docs: [] });
 
 // Other Nov payouts at S besides leave encashment (row 9, column F of the workbook).
 const sNovOther = (12 / 31 + 17) * 3240 + (11 / 30 + 4) * 4387;
@@ -23,8 +26,10 @@ const sNovOther = (12 / 31 + 17) * 3240 + (11 / 30 + 4) * 4387;
 export const workbookScenario = (): Scenario => ({
   fy: 2026,
   today: '2026-09-26',
-  settings: { thirtyDayMonth: true, form12B: 'second', nextFyHike: 0.1 },
-  current: {
+  settings: { thirtyDayMonth: true, nextFyHike: 0.1 },
+  employers: [
+  {
+    ...job('s'),
     name: 'S',
     start: '2026-04-01',
     end: '2026-11-11',
@@ -50,9 +55,10 @@ export const workbookScenario = (): Scenario => ({
       '2026-10': 0,
       '2026-11': 0,
     },
+    fnf: { leaveDays: 22, noticeDaysRecovered: 21, clawback: 0, buyoutByNext: true },
   },
-  fnf: { leaveDays: 22, noticeDaysRecovered: 21, clawback: 0, buyoutByNew: true },
-  next: {
+  {
+    ...job('a'),
     name: 'A',
     start: '2026-11-12',
     end: '',
@@ -64,38 +70,40 @@ export const workbookScenario = (): Scenario => ({
     variable: { annual: 180000, payoutPct: 1, prorate: true, month: '2027-04' },
     tdsKnown: {},
   },
+  ],
 });
 
 describe('workbook parity', () => {
   const r = compute(workbookScenario());
+  const [S, A] = r.employers;
 
   it('S Computation', () => {
-    expect(r.fnf!.perDay).toBe(2736);
-    expect(r.fnf!.leaveEncashment).toBe(60192);
-    expect(r.fnf!.noticeRecovery).toBe(57456);
-    const sGross = r.currentLines.reduce((a, l) => a + l.gross, 0);
+    expect(S.fnf!.perDay).toBe(2736);
+    expect(S.fnf!.leaveEncashment).toBe(60192);
+    expect(S.fnf!.noticeRecovery).toBe(57456);
+    const sGross = S.lines.reduce((a, l) => a + l.gross, 0);
     expect(sGross).toBeCloseTo(1738708.76, -1);
-    expect(r.currentLines.reduce((a, l) => a + l.tds, 0)).toBe(172170);
-    const nov = r.currentLines.find((l) => l.month === '2026-11')!;
+    expect(S.lines.reduce((a, l) => a + l.tds, 0)).toBe(172170);
+    const nov = S.lines.find((l) => l.month === '2026-11')!;
     expect(nov.basic).toBeCloseTo(30096, 0);
     expect(nov.epf).toBeCloseTo(1100, 0);
     expect(nov.recoveries).toBe(57456);
   });
 
   it('A Computation monthly rows', () => {
-    const gross = r.nextLines.map((l) => Math.round(l.gross));
+    const gross = A.lines.map((l) => Math.round(l.gross));
     expect(gross).toEqual([179360, 340656, 283200, 433200, 283200]);
-    const nps = r.nextLines.reduce((a, l) => a + l.nps, 0);
+    const nps = A.lines.reduce((a, l) => a + l.nps, 0);
     expect(nps).toBeCloseTo(92435, 2);
-    expect(r.form12B).toBe('2026-12');
+    expect(A.form12B).toBe('2026-12');
   });
 
   it('A TDS staging', () => {
-    const tds = r.nextLines.map((l) => l.tds);
+    const tds = A.lines.map((l) => l.tds);
     [0, 77146.92, 77146.92, 100546.92, 100546.92].forEach((v, i) => expect(tds[i]).toBeCloseTo(v, 1));
-    expect(r.nextStage[0].taxable).toBe(1144730);
-    expect(r.nextStage[1].taxable).toBe(2940890);
-    expect(r.nextStage[3].taxable).toBe(3090890);
+    expect(A.stage[0].taxable).toBe(1144730);
+    expect(A.stage[1].taxable).toBe(2940890);
+    expect(A.stage[3].taxable).toBe(3090890);
   });
 
   it('combined liability and filing position', () => {

@@ -3,6 +3,8 @@ import { addMonths, fyStart, maxDate, monthLong, monthOf } from '../domain/fy';
 import { arrearsFor, fixedMonthly, noticeShortfall } from '../domain/schedule';
 import type { Buyout, Employment, FnF, LeaveBasis, OneTime, Revision } from '../domain/types';
 import { rs } from '../format';
+
+const short = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
 import { DateInput, Field, Money, MonthInput, Num, Percent, Segmented, Toggle } from './controls';
 import { StructureEditor } from './Editors';
 
@@ -164,6 +166,30 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
                 ? 'Not paid.'
                 : `No gratuity: ${items.gratuityLabel || 'none'}.`}
         </p>
+      )}
+      {items && items.gratuityKind === 'exgratia' && items.gratuityPeriods.length > 0 && (
+        <div class="xg-periods">
+          <span class="field-label">Ex gratia rate (per month) over your service</span>
+          <p class="muted small">The yearly gratuity in your CTC, paid for the time you served at each rate. A hike changes the rate; correct any rate from your letters.</p>
+          {items.gratuityPeriods.map((p) => (
+            <div class="xg-row">
+              <span class="small">
+                {short(p.from)} – {short(p.to)}
+                <span class="muted"> · {p.months.toFixed(1)} months{p.scaled ? ' · scaled with basic' : ''}</span>
+              </span>
+              <Money
+                value={p.monthly}
+                onChange={(v) =>
+                  p.rev < 0
+                    ? props.onChange({ ...e, ctcParts: { ...e.ctcParts, gratuity: v } })
+                    : props.onChange({ ...e, revisions: e.revisions.map((r, i) => (i === p.rev ? { ...r, gratuity: v || undefined } : r)) })
+                }
+                ariaLabel={`Ex gratia rate from ${short(p.from)}`}
+              />
+              <span class="num small">{rs(p.amount)}</span>
+            </div>
+          ))}
+        </div>
       )}
       <Toggle checked={f.gratuityMode === 'none'} onChange={(v) => setF({ gratuityMode: v ? 'none' : 'auto' })} label="My employer doesn't pay gratuity or ex gratia" />
 

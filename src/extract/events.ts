@@ -128,6 +128,12 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
       })),
     ),
   ];
+  // A bonus you entered by hand is already inside a month your files record: count it once.
+  const pv = out.oneTimes.find((o) => o.id === 'prev-variable');
+  if (pv && actual[pv.month]?.items?.some((it) => it.kind === 'bonus')) {
+    out.oneTimes = out.oneTimes.filter((o) => o !== pv);
+    notes.push(`The ${pv.label} you entered for ${monthLong(pv.month)} is already in your files' payments for that month, so it's counted once.`);
+  }
   const tdsMonths = Object.keys(out.tdsKnown).sort();
   if (tdsMonths.length)
     notes.push(

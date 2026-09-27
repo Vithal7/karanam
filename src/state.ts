@@ -1,6 +1,7 @@
 import { MAX_EMPLOYERS } from './domain/compute';
 import { addMonths, fyEnd, fyOf, fyStart, maxDate, monthOf } from './domain/fy';
 import type { DocRecord, Employment, Scenario, Structure } from './domain/types';
+import type { AsideDoc } from './extract/intake';
 import type { Choices, Mark } from './extract/merge';
 import { uid } from './format';
 
@@ -24,6 +25,8 @@ export interface AppState {
   notes: Record<string, string[]>;
   /** Files whose company we couldn't tell; the user picks the job. */
   inbox: DocRecord[];
+  /** Files that aren't about this financial year (old jobs, last year's tax sheet), and why. */
+  aside: AsideDoc[];
   /** Per job: appraisal letters whose hike size we need from the user. */
   needs: Record<string, { docId: string; docName: string; month: string }[]>;
   /** Per job: total TDS deducted so far this FY (from the latest payslip). */
@@ -82,6 +85,7 @@ export function initialState(): AppState {
     warnings: {},
     notes: {},
     inbox: [],
+    aside: [],
     needs: {},
     tdsSoFar: {},
     showNextFy: false,
@@ -189,8 +193,8 @@ const V2_STEPS: Record<string, StepId> = { 'offer-upload': 'upload', 'offer-revi
 /** Saved state from older versions: v1 (one current job + offer), v2 (up to 3 jobs). */
 export function migrate(x: any): AppState | null {
   if (!x || typeof x !== 'object') return null;
-  if (x.v === 3) return { needs: {}, ...x } as AppState;
-  if (x.v === 2) return { ...x, v: 3, step: V2_STEPS[x.step] ?? 'story', notes: {}, inbox: [] } as AppState;
+  if (x.v === 3) return { needs: {}, aside: [], ...x } as AppState;
+  if (x.v === 2) return { ...x, v: 3, step: V2_STEPS[x.step] ?? 'story', notes: {}, inbox: [], aside: [] } as AppState;
   const s = x.scenario;
   if (!s?.next) return null;
   const up = (e: any, fnf?: any): Employment => ({

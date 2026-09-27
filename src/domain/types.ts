@@ -52,6 +52,8 @@ export interface Revision {
   source?: string;
   /** true when the breakup was worked out by scaling the old one (letter gave only a total). */
   scaled?: boolean;
+  /** Monthly gratuity / ex gratia accrual in the CTC from this hike; empty = scaled with basic. */
+  gratuity?: number;
 }
 
 export type OneTimeKind = 'joining' | 'variable' | 'bonus' | 'leaveEncashment' | 'buyout' | 'other';
@@ -175,6 +177,10 @@ export interface DocRecord {
   id: string;
   name: string;
   kind: DocKind;
+  /** You chose to use it although it looked like it's from another year. */
+  keep?: boolean;
+  /** Financial year a tax sheet or Form 16 is for (2026 = FY 2026-27). */
+  fy?: number;
   /** Letter date or payslip month (YYYY-MM-DD), if found. */
   docDate?: string;
   /** Monthly component values keyed by field (basic, hra, special, epf, pt, ctc, ...). */

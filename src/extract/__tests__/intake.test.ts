@@ -299,3 +299,69 @@ Basic 67,500 8,10,000`, 'appointment.pdf');
     expect(none.startSource).toBe('default');
   });
 });
+
+describe('files from other years are set aside, with the reason', () => {
+  const OLD_OFFER = `Globex Software Private Limited
+Date: 10/05/2019
+Offer of Employment
+Your date of joining will be 1st June 2019.
+Basic 40,000 4,80,000
+HRA 20,000 2,40,000
+Total CTC 9,00,000`;
+  const OLD_RELIEVING = `Globex Software Private Limited
+Date: 20/02/2024
+Full and Final Settlement Statement
+Last Working Day: 29/02/2024
+Leave Encashment (10 days) 13,333
+Net Payable 50,000`;
+  const LAST_YEAR_SHEET = `Sigma Systems Private Limited
+Income Tax Computation For FY 2025-26
+Particulars Apr-25 May-25 Jun-25
+TDS 9,000 9,000 9,000
+Date: 15/03/2026`;
+  const OLD_SLIP = `Sigma Systems Private Limited
+Payslip for the month of May 2024
+Basic 67,500
+HRA 33,750
+Income Tax 5,000`;
+  const NEW_SLIP = `Sigma Systems Private Limited
+Payslip for the month of August 2026
+Basic 82,080
+HRA 41,040
+Income Tax 16,110`;
+  const files = [
+    ['globex-offer.pdf', OLD_OFFER],
+    ['globex-fnf.pdf', OLD_RELIEVING],
+    ['sigma-offer-2024.pdf', SIGMA_OFFER],
+    ['acme-offer.pdf', ACME_OFFER],
+    ['sigma-tax-2025-26.pdf', LAST_YEAR_SHEET],
+    ['sigma-may-2024.pdf', OLD_SLIP],
+    ['sigma-aug-2026.pdf', NEW_SLIP],
+  ].map(([n, t]) => docFromText(t, n));
+  const { employers, aside, unassigned } = assignDocs([blankJob('New job', '2026-09-27')], files, 2026);
+  const reason = (name: string) => aside.find((a) => a.doc.name === name)?.reason;
+
+  it('keeps only this year’s jobs', () => {
+    expect(unassigned).toEqual([]);
+    expect(employers.map((e) => e.name)).toEqual(['Sigma Systems Private Limited', 'ACME Technologies Private Limited']);
+  });
+  it('a job you left before the year began', () => {
+    expect(reason('globex-offer.pdf')).toMatch(/You left Globex .* 29 Feb 2024, before FY 2026-27 began/);
+    expect(reason('globex-fnf.pdf')).toBeDefined();
+  });
+  it('last year’s tax sheet, and an old payslip when a newer one exists', () => {
+    expect(reason('sigma-tax-2025-26.pdf')).toMatch(/FY 2025-26; this is FY 2026-27/);
+    expect(reason('sigma-may-2024.pdf')).toMatch(/newer one/);
+    expect(employers[0].docs.map((d) => d.name).sort()).toEqual(['sigma-aug-2026.pdf', 'sigma-offer-2024.pdf']);
+  });
+  it('a job you had already left for a later one, with no exit papers', () => {
+    const r = assignDocs([blankJob('New job', '2026-09-27')], [docFromText(OLD_OFFER, 'globex-offer.pdf'), docFromText(SIGMA_OFFER, 'sigma.pdf'), docFromText(ACME_OFFER, 'acme.pdf')], 2026);
+    expect(r.employers.map((e) => e.name)).toEqual(['Sigma Systems Private Limited', 'ACME Technologies Private Limited']);
+    expect(r.aside[0].reason).toMatch(/You joined Sigma Systems Private Limited on 1 Mar 2024/);
+  });
+  it('"use it anyway" keeps a file', () => {
+    const kept = { ...files[4], keep: true };
+    const r = assignDocs(employers, [kept], 2026);
+    expect(r.aside).toEqual([]);
+  });
+});

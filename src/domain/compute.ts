@@ -40,11 +40,57 @@ export interface FnFItems {
   /** How it was worked out, in words. */
   gratuityLabel: string;
   serviceYears: number;
+  /** Ex gratia: each stretch of service at one monthly rate (it changes with hikes). */
+  gratuityPeriods: GratuityPeriod[];
   /** Month the F&F is paid. */
   month: string;
   /** Month of the last working day (pro-rata salary). */
   lastMonth: string;
   lastMonthFactor: number;
+}
+
+export interface GratuityPeriod {
+  /** First and last day of the stretch. */
+  from: string;
+  to: string;
+  /** Monthly accrual rate in this stretch, and whether it was scaled from basic. */
+  monthly: number;
+  scaled: boolean;
+  months: number;
+  amount: number;
+  /** Which rate this is: -1 for the joining CTC, else the index into emp.revisions. */
+  rev: number;
+}
+
+const DAY = 86_400_000;
+const dayAfter = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`) + DAY).toISOString().slice(0, 10);
+const dayBeforeIso = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`) - DAY).toISOString().slice(0, 10);
+
+/**
+ * Ex gratia accrues at the CTC's gratuity rate for the time served at that rate: the joining rate
+ * until the first hike, then each hike's rate (given, or scaled with basic) until the next.
+ */
+export function exGratiaPeriods(emp: Employment): GratuityPeriod[] {
+  const g0 = emp.ctcParts?.gratuity;
+  if (!g0 || !emp.start || !emp.end || emp.end < emp.start) return [];
+  const b0 = emp.structure.basic;
+  const revs = emp.revisions.map((r, i) => ({ r, i })).filter((x) => x.r.from).sort((a, b) => a.r.from.localeCompare(b.r.from));
+  const cuts: { from: string; monthly: number; scaled: boolean; rev: number }[] = [{ from: emp.start, monthly: g0, scaled: false, rev: -1 }];
+  for (const { r, i } of revs) {
+    const from = `${r.from}-01`;
+    const monthly = r.gratuity ?? (b0 ? Math.round((g0 * r.structure.basic) / b0) : g0);
+    const at = from <= emp.start ? 0 : cuts.length;
+    const cut = { from: from <= emp.start ? emp.start : from, monthly, scaled: r.gratuity === undefined, rev: i };
+    if (cut.from > emp.end) continue;
+    if (at === 0) cuts[0] = cut;
+    else cuts.push(cut);
+  }
+  return cuts.map((c, k) => {
+    const to = k + 1 < cuts.length ? dayBeforeIso(cuts[k + 1].from) : emp.end;
+    const days = (Date.parse(dayAfter(to)) - Date.parse(c.from)) / DAY;
+    const months = (days / 365.25) * 12;
+    return { from: c.from, to, monthly: c.monthly, scaled: c.scaled, months, amount: c.monthly * months, rev: c.rev };
+  });
 }
 
 /** Gratuity exemption limit under s.10(10)(iii). */
@@ -106,26 +152,26 @@ const GRATUITY_MIN_YEARS = 4 + 240 / 365;
 export function gratuityFor(emp: Employment, basic: number, f: NonNullable<Employment['fnf']>) {
   const years = emp.start && emp.end ? Math.max(0, (Date.parse(emp.end) - Date.parse(emp.start)) / 86_400_000 + 1) / 365.25 : 0;
   const qualifies = years >= GRATUITY_MIN_YEARS;
-  const none = { gratuity: 0, gratuityKind: 'none' as const, gratuityExempt: 0, gratuityLabel: '', serviceYears: years };
+  const none = { gratuity: 0, gratuityKind: 'none' as const, gratuityExempt: 0, gratuityLabel: '', serviceYears: years, gratuityPeriods: [] as GratuityPeriod[] };
   if (f.gratuityMode === 'none') return none;
   if (f.gratuity !== undefined) {
     const exempt = qualifies ? Math.min(f.gratuity, GRATUITY_EXEMPT_CAP) : 0;
-    return { gratuity: f.gratuity, gratuityKind: qualifies ? ('gratuity' as const) : ('exgratia' as const), gratuityExempt: exempt, gratuityLabel: 'as per your F&F slip', serviceYears: years };
+    return { ...none, gratuity: f.gratuity, gratuityKind: qualifies ? ('gratuity' as const) : ('exgratia' as const), gratuityExempt: exempt, gratuityLabel: 'as per your F&F slip' };
   }
   if (qualifies) {
     const whole = Math.floor(years) + (years % 1 >= 0.5 ? 1 : 0);
     const amount = Math.round((15 / 26) * basic * whole);
-    return { gratuity: amount, gratuityKind: 'gratuity' as const, gratuityExempt: Math.min(amount, GRATUITY_EXEMPT_CAP), gratuityLabel: `15/26 × basic ${inr(basic)} × ${whole} years`, serviceYears: years };
+    return { ...none, gratuity: amount, gratuityKind: 'gratuity' as const, gratuityExempt: Math.min(amount, GRATUITY_EXEMPT_CAP), gratuityLabel: `15/26 × basic ${inr(basic)} × ${whole} years` };
   }
-  const monthlyRate = emp.ctcParts?.gratuity;
-  if (!monthlyRate) return { ...none, gratuityLabel: 'under 5 years of service and no gratuity rate in your CTC' };
-  const amount = Math.round(monthlyRate * 12 * years);
+  const periods = exGratiaPeriods(emp);
+  if (!periods.length) return { ...none, gratuityLabel: 'under 5 years of service and no gratuity rate in your CTC' };
+  const amount = Math.round(periods.reduce((a, p) => a + p.amount, 0));
   return {
+    ...none,
     gratuity: amount,
     gratuityKind: 'exgratia' as const,
-    gratuityExempt: 0,
-    gratuityLabel: `ex gratia at the CTC's gratuity rate ${inr(monthlyRate * 12)} a year × ${years.toFixed(2)} years served`,
-    serviceYears: years,
+    gratuityLabel: periods.map((p) => `${inr(p.monthly)}/month × ${p.months.toFixed(1)} months`).join(' + '),
+    gratuityPeriods: periods,
   };
 }
 

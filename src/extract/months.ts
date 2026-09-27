@@ -15,10 +15,11 @@ export type RowKind = 'tds' | 'bonus' | 'arrears' | 'gross';
 /** What a row (or column) holds, from its label. */
 export function rowKind(label: string): RowKind | undefined {
   const l = label.toLowerCase();
-  if (/payable|projected|balance|remaining|to\s+be|net\s+tax|on\s+which|taxable|exempt|deduction\s+u\/s|professional|p\.?\s*tax\b|\bpt\b|tax\s+on\b|surcharge|cess|rebate/.test(l)) return undefined;
+  if (/payable|projected|balance|remaining|to\s+be|net\s+tax|on\s+which|till\s+date|to\s+date|previous\s+employer|outside|advance|shortfall|excess|taxable|exempt|deduction\s+u\/s|professional|p\.?\s*tax\b|\bpt\b|tax\s+on\b|surcharge|cess|rebate/.test(l)) return undefined;
   if (/\b(tds|tax\s+deducted|tax\s+recovered|income[\s-]*tax|i\.?\s*tax|tax\s+paid|tax\s+deduction|it\s+(deducted|deduction|recovered)|\btax\b)/.test(l)) return 'tds';
   if (/arrear/.test(l)) return 'arrears';
   if (/joining|sign[\s-]*on/.test(l)) return undefined;
+  if (/extra\s+pay|one[\s-]*time\s+pay/.test(l)) return 'bonus';
   if (/bonus|variable|incentive|\bpli\b|performance\s+(pay|linked)|ex[\s-]?gratia|award|\bvpp\b|\bspp\b/.test(l)) return 'bonus';
   if (/^gross|gross\s+(salary|earnings|pay)|total\s+earnings/.test(l)) return 'gross';
   return undefined;
@@ -91,11 +92,19 @@ export function parseMonthTable(text: string, fallbackFy: number, cutoff: string
   const lines = text.replace(/\r/g, '').split('\n');
   const fy = sheetFy(text) ?? fallbackFy;
   const out: Record<string, MonthActual> = {};
+  // TDS can sit on more than one row ("TDS" and "Off Cycle TDS"): they add up. A "Total TDS" row
+  // is used only when there's nothing else.
+  const tdsRows: Record<string, { sum?: number; total?: number }> = {};
   const put = (month: string, kind: RowKind, label: string, v: number | undefined) => {
     if (v === undefined || !Number.isFinite(v) || month >= cutoff) return;
     const a = (out[month] ??= {});
-    if (kind === 'tds') a.tds = v;
-    else if (kind === 'gross') a.gross = v;
+    if (/extra\s+pay|one[\s-]*time\s+pay/i.test(label)) label = 'Extra payments (bonus, arrears)';
+    if (kind === 'tds') {
+      const t = (tdsRows[month] ??= {});
+      if (/^total\b/i.test(label.trim())) t.total = (t.total ?? 0) + v;
+      else t.sum = (t.sum ?? 0) + v;
+      a.tds = t.sum ?? t.total;
+    } else if (kind === 'gross') a.gross = v;
     else if (v > 0) (a.items ??= []).push({ label, amount: v, kind: kind === 'arrears' ? 'arrears' : 'bonus' });
   };
 
@@ -108,11 +117,15 @@ export function parseMonthTable(text: string, fallbackFy: number, cutoff: string
       return monthKey(MON.indexOf(m[1].toLowerCase()) + 1, fy, m[2]);
     });
     const cols = months.map((c) => c.at);
+    const seen = new Set<string>();
     for (const line of lines.slice(hi + 1, hi + 60)) {
       if (cells(line, MON_TOKEN).length >= 3) break; // next table
       const label = labelOf(line);
       const kind = rowKind(label);
       if (!kind) continue;
+      // A label seen again is the summary below the table ("Total Extra Payments  4,01,523").
+      if (seen.has(label.toLowerCase())) continue;
+      seen.add(label.toLowerCase());
       const values = cells(line.slice(label.length ? line.indexOf(label) + label.length : 0), VALUE).map((v) => ({ ...v, at: v.at + (label.length ? line.indexOf(label) + label.length : 0) }));
       const positional = values.some((v) => v.at >= cols[0] - 2) && values.every((v) => v.at >= cols[0] - (cols[1] - cols[0]) * 0.6);
       let assigned = positional ? byColumn(values, cols) : inOrder(values, cols.length);

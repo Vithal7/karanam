@@ -148,3 +148,38 @@ describe('TDS typed in month by month', () => {
     expect(last.employers[0].tdsKnown['2026-06']).toBe(11_000);
   });
 });
+
+describe('a payroll tax computation with off-cycle rows and a summary below', () => {
+  // Same shape as a real Suzlon sheet: months as "April-2026", TDS on its own row, an all-zero
+  // "Off Cycle TDS Deduction" row after it, and a summary that repeats labels with one figure.
+  const W = 36;
+  const row = (label: string, cells: string[]) => `  ${label.padEnd(60)}${cells.map((c) => c.padStart(W)).join('')}`;
+  const heads = ['April-2026', 'May-2026', 'June-2026', 'July-2026', 'August-2026', 'September-2026', 'October-2026', 'November-2026', 'December-2026', 'January-2027', 'February-2027', 'March-2027', 'Total'];
+  const zeros = (n: number) => Array(n).fill('0');
+  const T = [
+    'Income Tax Computation For FY 2026-27',
+    row('Particulars', heads),
+    row('Basic Salary', ['67,500', '67,500', '67,500', '82,080', '82,080', '82,080', '82,080', '30,096', ...zeros(4), '5,60,916']),
+    row('Total Extra Payments', ['0', '0', '0', '4,01,523', ...zeros(8), '4,01,523']),
+    row('Gross Salary(A)', ['1,44,960', '1,44,960', '1,44,960', '5,77,736', '1,76,213', '1,76,213', '1,76,213', '64,611', ...zeros(4), '16,05,866']),
+    row('Professional Tax', ['200', '200', '200', '200', '200', '200', '200', '200', ...zeros(4), '1,600']),
+    row('TDS', ['11,518', '11,518', '11,518', '1,19,597', '18,019', ...zeros(7), '1,72,170']),
+    row('Total Deductions(B)', ['13,518', '13,518', '13,518', '1,21,597', '20,019', '2,000', '2,000', '2,000', ...zeros(4), '1,88,170']),
+    row('Off Cycle TDS Deduction (E)', zeros(13)),
+    '  DETAILS OF SALARY PAID AND ANY OTHER INCOME AND TAX DEDUCTED',
+    `  ${'Total Extra Payments'.padEnd(250)}4,01,523`,
+    `  ${'Previous Employer TDS (B)'.padEnd(420)}0`,
+    `  ${'Tax Deducted till Date by Current Employer (D)'.padEnd(420)}1,72,170`,
+    'Downloaded on 20-09-2026',
+  ].join('\n');
+  it('adds the TDS rows instead of letting the zero row win, and reads extra payments once', () => {
+    const m = parseMonthTable(T, 2026, '2026-09');
+    expect(['2026-04', '2026-05', '2026-06', '2026-07', '2026-08'].map((k) => m[k]?.tds)).toEqual([11518, 11518, 11518, 119597, 18019]);
+    expect(m['2026-07'].items).toEqual([{ label: 'Extra payments (bonus, arrears)', amount: 401523, kind: 'bonus' }]);
+    expect(Object.values(m).flatMap((a) => a.items ?? [])).toHaveLength(1);
+  });
+  it('a "Total TDS" row counts only when there is no other', () => {
+    const X = ['FY 2026-27', row('Particulars', heads.slice(0, 3)), row('TDS', ['100', '100', '100']), row('Total TDS', ['100', '100', '100'])].join('\n');
+    expect(parseMonthTable(X, 2026, '2026-09')['2026-04'].tds).toBe(100);
+  });
+});

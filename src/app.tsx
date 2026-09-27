@@ -115,14 +115,14 @@ export function App() {
     setSt((x) => {
       const docs = files.map((f) => docFromText(f.text, f.name));
       const texts = Object.fromEntries(docs.map((d, i) => [d.id, files[i].text]));
-      const { employers, unassigned, changed } = assignDocs(x.scenario.employers, docs, x.scenario.fy, texts);
+      const { employers, unassigned, changed, aside } = assignDocs(x.scenario.employers, docs, x.scenario.fy, texts);
       const warnings = { ...x.warnings };
       for (const f of files) {
         const d = docs.find((dd) => dd.name === f.name);
         const job = employers.find((e) => e.docs.some((dd) => dd.id === d?.id));
         if (job && d?.kind === 'offer') warnings[job.id] = [...(warnings[job.id] ?? []), ...f.x.warnings.map((w) => `${f.name}: ${w}`)];
       }
-      return rebuild({ ...x, scenario: { ...x.scenario, employers }, inbox: [...x.inbox, ...unassigned], warnings }, changed, rules);
+      return rebuild({ ...x, scenario: { ...x.scenario, employers }, inbox: [...x.inbox, ...unassigned], aside: [...x.aside, ...aside], warnings }, changed, rules);
     });
 
   const assign = (docId: string, target: string) =>
@@ -279,6 +279,14 @@ export function App() {
               inbox={st.inbox}
               onAssign={assign}
               onDiscard={(id) => update({ inbox: st.inbox.filter((d) => d.id !== id) })}
+              aside={st.aside}
+              onUseAside={(id) =>
+                setSt((x) => {
+                  const a = x.aside.find((y) => y.doc.id === id);
+                  return a ? { ...x, aside: x.aside.filter((y) => y !== a), inbox: [...x.inbox, { ...a.doc, keep: true }] } : x;
+                })
+              }
+              onDropAside={(id) => update({ aside: st.aside.filter((y) => y.doc.id !== id) })}
               onAddFiles={ingest}
               onEdit={(id) => go('job-edit', id)}
               onRemove={removeJob}

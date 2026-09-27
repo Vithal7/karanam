@@ -5,6 +5,7 @@ import type { TimelineEvent } from '../../domain/story';
 import type { DocRecord, Facts, Scenario } from '../../domain/types';
 import { CompanyCards } from '../CompanyCards';
 import { DOC_KIND_SHORT } from '../docKinds';
+import type { AsideDoc } from '../../extract/intake';
 import { Continue } from '../Continue';
 import { reconcile } from '../../domain/reconcile';
 import { rs } from '../../format';
@@ -57,6 +58,9 @@ export function StoryStep(props: {
   notes: Record<string, string[]>;
   needs: Record<string, HikeNeed[]>;
   inbox: DocRecord[];
+  aside: AsideDoc[];
+  onUseAside: (docId: string) => void;
+  onDropAside: (docId: string) => void;
   onAssign: (docId: string, target: string) => void;
   onDiscard: (docId: string) => void;
   onAddFiles: (f: ReadFile[]) => void;
@@ -103,6 +107,34 @@ export function StoryStep(props: {
             </div>
           ))}
         </div>
+      )}
+
+      {props.aside.length > 0 && (
+        <details class="card aside-docs">
+          <summary>
+            <strong>
+              {props.aside.length} file{props.aside.length === 1 ? '' : 's'} not used: not from {fyLabel(s.fy)}
+            </strong>
+            <span class="muted small"> · show</span>
+          </summary>
+          <p class="muted small">Old letters, payslips and tax sheets from other years don't change this year's money. Use one anyway if we got it wrong.</p>
+          {props.aside.map((a) => (
+            <div class="aside-row">
+              <div>
+                <span class="file-kind">{DOC_KIND_SHORT[a.doc.kind]}</span> <span class="file-name">{a.doc.name}</span>
+                <p class="muted small">{a.reason}</p>
+              </div>
+              <div class="tl-actions">
+                <button type="button" class="btn small" onClick={() => props.onUseAside(a.doc.id)}>
+                  Use it anyway
+                </button>
+                <button type="button" class="btn small ghost" onClick={() => props.onDropAside(a.doc.id)}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </details>
       )}
 
       {r && (

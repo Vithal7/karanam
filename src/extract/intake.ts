@@ -9,8 +9,8 @@ import { uid } from '../format';
 import { classifyDoc, companyFromEmail, companyKey, extractFacts } from './facts';
 import { docFromExtract } from './merge';
 import { parseText } from './parse';
-import { parseMonthTable } from './months';
-import { fyOf, minDate } from '../domain/fy';
+import { parseMonthTable, sheetFy } from './months';
+import { fyEnd, fyOf, maxDate, minDate } from '../domain/fy';
 
 /** Limits for figures read from a file; anything beyond is a misread, not a salary. */
 const FIELD_MAX: Record<string, number> = { basic: 2_000_000, hra: 1_500_000, special: 2_000_000, epf: 100_000, pt: 2_500, nps: 500_000, ctc: 200_000_000, joining: 50_000_000, variable: 100_000_000, retention: 50_000_000 };
@@ -37,8 +37,9 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   if (k === 'taxsheet') {
+    d.fy = sheetFy(text) ?? (d.docDate ? fyOf(d.docDate) : undefined);
     const cutoff = d.docDate ? minDate(d.docDate.slice(0, 7), thisMonth) : thisMonth;
-    const monthly = parseMonthTable(text, fyOf(d.docDate ?? `${thisMonth}-01`), cutoff);
+    const monthly = parseMonthTable(text, d.fy ?? fyOf(d.docDate ?? `${thisMonth}-01`), cutoff);
     if (Object.keys(monthly).length) d.facts.monthly = monthly;
     const tdsMonths = Object.values(monthly).filter((m) => m.tds !== undefined);
     if (d.ytdTds === undefined && tdsMonths.length) d.ytdTds = tdsMonths.reduce((a, m) => a + (m.tds ?? 0), 0);
@@ -140,7 +141,7 @@ export function assignDocs(
   docs: DocRecord[],
   fy: number,
   texts: Record<string, string> = {},
-): { employers: Employment[]; unassigned: DocRecord[]; changed: Set<string> } {
+): { employers: Employment[]; unassigned: DocRecord[]; changed: Set<string>; aside: AsideDoc[] } {
   let jobs = employers.map((e) => ({ ...e, docs: [...e.docs] }));
   const unassigned: DocRecord[] = [];
   const changed = new Set<string>();
@@ -160,7 +161,8 @@ export function assignDocs(
       blank.start = start;
       return blank;
     }
-    if (jobs.length >= MAX_EMPLOYERS) return undefined;
+    // Room for old jobs' files while sorting; the timeline check below sets them aside.
+    if (jobs.length >= MAX_EMPLOYERS + 3) return undefined;
     const j = blankJob(name, start);
     jobs.push(j);
     return j;
@@ -195,7 +197,85 @@ export function assignDocs(
     place(d, target);
   }
   jobs = orderJobs(jobs.filter((e) => !isBlank(e) || jobs.length === 1));
-  return { employers: jobs, unassigned, changed };
+  const t = checkTimeline(jobs, fy);
+  for (const e of t.employers) if (e.docs.length !== jobs.find((j) => j.id === e.id)?.docs.length) changed.add(e.id);
+  return { employers: t.employers, unassigned, changed, aside: t.aside };
+}
+
+/** A file that isn't about this financial year, and why. */
+export interface AsideDoc {
+  doc: DocRecord;
+  reason: string;
+}
+
+const lastDayFromDocs = (e: Employment) =>
+  e.docs
+    .filter((d) => d.kind === 'resignation' || d.kind === 'fnf')
+    .map((d) => d.facts?.lastWorkingDay)
+    .filter((x): x is string => !!x)
+    .sort()
+    .pop();
+
+const long = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+const fyName = (y: number) => `FY ${y}-${String((y + 1) % 100).padStart(2, '0')}`;
+
+/**
+ * The time axis decides what counts. People drop in whatever they have: letters from jobs they
+ * left years ago, last year's tax sheet, a stack of old payslips. Set those aside, and say why:
+ *  - a tax sheet or Form 16 for another financial year;
+ *  - payslips from before this year, when a newer one gives the same job's salary;
+ *  - a job that ended before this year began: its exit papers say so, or you had already joined a
+ *    later job by 1 April;
+ *  - more than 3 jobs in the year: the oldest ones.
+ */
+export function checkTimeline(jobs: Employment[], fy: number): { employers: Employment[]; aside: AsideDoc[] } {
+  const aside: AsideDoc[] = [];
+  const real = jobs.filter((e) => !isBlank(e));
+  const newest = real.map(jobStart).filter(Boolean).sort().pop();
+  const year = newest && newest > fyEnd(fy) ? fyOf(newest) : fy;
+  const from = fyStart(year);
+  const inYear = (iso?: string) => !!iso && iso >= from && iso <= fyEnd(year);
+
+  let out = jobs.map((e) => {
+    const keep: DocRecord[] = [];
+    const oldSlips = e.docs.filter((d) => d.kind === 'payslip' && d.docDate && d.docDate < from).sort((a, b) => (a.docDate ?? '').localeCompare(b.docDate ?? ''));
+    const hasNewSlip = e.docs.some((d) => d.kind === 'payslip' && inYear(d.docDate));
+    for (const d of e.docs) {
+      if (d.keep) keep.push(d);
+      else if (d.kind === 'taxsheet' && d.fy !== undefined && d.fy !== year) {
+        aside.push({ doc: d, reason: `It's for ${fyName(d.fy)}; this is ${fyName(year)}.` });
+      } else if (d.kind === 'payslip' && oldSlips.includes(d) && (hasNewSlip || d !== oldSlips[oldSlips.length - 1])) {
+        aside.push({ doc: d, reason: `A ${d.docDate!.slice(0, 7)} payslip; a newer one gives your salary.` });
+      } else keep.push(d);
+    }
+    return keep.length === e.docs.length ? e : { ...e, docs: keep };
+  });
+
+  // Jobs that ended before the year began.
+  const starts = new Map(out.map((e) => [e.id, jobStart(e)]));
+  out = out.filter((e) => {
+    if (isBlank(e) || !e.docs.length) return true;
+    const start = starts.get(e.id) ?? '';
+    const left = lastDayFromDocs(e);
+    const activeInYear = e.docs.some((d) => (d.kind === 'payslip' && inYear(d.docDate)) || (d.kind === 'taxsheet' && d.fy === year));
+    let reason: string | undefined;
+    if (left && left < from) reason = `You left ${e.name} on ${long(left)}, before ${fyName(year)} began.`;
+    else if (!left && !activeInYear) {
+      const later = out.find((o) => o !== e && !isBlank(o) && companyKey(o.name) !== companyKey(e.name) && (starts.get(o.id) ?? '') > start && (starts.get(o.id) ?? '') <= from);
+      if (later) reason = `You joined ${later.name} on ${long(starts.get(later.id)!)}, before ${fyName(year)} began, so this is from an earlier job.`;
+    }
+    if (!reason || e.docs.some((d) => d.keep)) return true;
+    for (const d of e.docs) aside.push({ doc: d, reason });
+    return false;
+  });
+
+  // At most 3 jobs a year: the newest ones.
+  while (out.length > MAX_EMPLOYERS) {
+    const [old] = out.splice(0, 1);
+    for (const d of old.docs) aside.push({ doc: d, reason: `Only ${MAX_EMPLOYERS} jobs a year are supported; ${old.name || 'this job'} is the oldest.` });
+  }
+  if (!out.length) out = [blankJob('New job', maxDate(from, jobs[0]?.start ?? from))];
+  return { employers: out, aside };
 }
 
 const daysApart = (a: string, b: string) => (a && b ? (Date.parse(a) - Date.parse(b)) / 86_400_000 : Infinity);

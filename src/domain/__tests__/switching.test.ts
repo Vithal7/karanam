@@ -127,7 +127,20 @@ describe('gratuity and ex gratia', () => {
     const years = (Date.parse('2026-11-01') - Date.parse('2025-01-20')) / 86_400_000 / 365.25 + 1 / 365.25;
     expect(f.gratuity).toBe(Math.round(3240 * 12 * years));
     expect(f.gratuityExempt).toBe(0);
-    expect(f.gratuityLabel).toMatch(/ex gratia/);
+    expect(f.gratuityLabel).toMatch(/\/month × 21\.4 months/);
+  });
+  it('ex gratia follows the rate in force: joining rate until the hike, the new rate after', () => {
+    const old = { ...base.structure, basic: 67500 };
+    const emp = { ...base, structure: old, ctcParts: { gratuity: 3240 }, revisions: [{ from: '2026-07', payoutMonth: '2026-08', structure: { ...old, basic: 82080 } }] };
+    const f = fnfItems(emp, 2026)!;
+    expect(f.gratuityPeriods.map((p) => [p.from, p.to, p.monthly])).toEqual([
+      ['2025-01-20', '2026-06-30', 3240],
+      ['2026-07-01', '2026-11-01', 3940],
+    ]);
+    expect(f.gratuity).toBe(Math.round(f.gratuityPeriods.reduce((a, p) => a + p.monthly * p.months, 0)));
+    // A rate stated in the appraisal letter wins over scaling.
+    const given = fnfItems({ ...emp, revisions: [{ ...emp.revisions[0], gratuity: 4000 }] }, 2026)!;
+    expect(given.gratuityPeriods[1].monthly).toBe(4000);
   });
   it('5+ years (4 years 240 days counts): 15/26 x basic x years, exempt', () => {
     const f = fnfItems({ ...base, start: '2021-03-01' }, 2026)!;

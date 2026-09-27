@@ -1,422 +1,333 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { compute, fnfItems } from './domain/compute';
-import { addMonths, fyLabel, fyOf, fyStart, maxDate, monthOf } from './domain/fy';
-import type { Employment, FnF, Scenario } from './domain/types';
-import type { Extracted } from './extract/parse';
-import { rs, uid } from './format';
+import { compute } from './domain/compute';
+import { fyLabel, maxDate, monthOf } from './domain/fy';
+import type { Employment, Scenario } from './domain/types';
+import { applyDocs, docFromExtract, mergeDocs } from './extract/merge';
+import { uid } from './format';
+import { type Rules } from './rules';
+import { activeRules, watchRules } from './rules/update';
 import {
   clearSaved,
+  dayBefore,
+  earlierJobs,
   effectiveScenario,
-  emptyEmployment,
-  employmentFromExtract,
+  fyFor,
   initialState,
   joinsMidYear,
   load,
+  newEarlierJob,
+  offerOf,
   save,
+  sortJobs,
   type AppState,
   type StepId,
 } from './state';
-import { Choices, DateInput, Field, Money, Num, Toggle, Warnings } from './ui/controls';
+import { DateInput, Field, Toggle, Warnings } from './ui/controls';
+import { Continue } from './ui/Continue';
+import { DocsPanel } from './ui/Docs';
 import { OfferExtras, OneTimeEditor, StructureEditor } from './ui/Editors';
 import { Results, downloadCsv } from './ui/Results';
-import { Uploader } from './ui/Uploader';
-
-const dayBefore = (iso: string) => {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
-};
+import { RulesContext } from './ui/rulesContext';
+import { JobEditStep } from './ui/steps/JobEdit';
+import { JobsStep } from './ui/steps/Jobs';
+import { Uploader, type ReadFile } from './ui/Uploader';
 
 const TITLES: Record<StepId, string> = {
-  'upload-next': 'Your new offer letter',
-  'review-next': 'Check what we found',
-  'current-q': 'Before this job',
-  'upload-current': 'Your current job',
-  'review-current': 'Your current salary',
-  exit: 'Leaving your current job',
-  prior: 'Earlier this year',
+  'offer-upload': 'Your new offer letter',
+  'offer-review': 'Check what we found',
+  jobs: 'Jobs this financial year',
+  'job-edit': 'An earlier job',
   extras: 'Anything else?',
   results: 'Your money, month by month',
 };
 
 export function App() {
   const [st, setSt] = useState<AppState>(() => load() ?? initialState());
+  const [rules, setRules] = useState<Rules>(() => activeRules());
+  const [rulesBanner, setRulesBanner] = useState(false);
   useEffect(() => save(st), [st]);
-  useEffect(() => window.scrollTo({ top: 0 }), [st.step]);
+  useEffect(() => window.scrollTo({ top: 0 }), [st.step, st.editing]);
+  useEffect(
+    () =>
+      watchRules((r) => {
+        setRules(r);
+        setRulesBanner(true);
+      }),
+    [],
+  );
 
   const s = st.scenario;
+  const offer = offerOf(s);
   const update = (patch: Partial<AppState>) => setSt((x) => ({ ...x, ...patch }));
-  const setScenario = (fn: (s: Scenario) => Scenario) => setSt((x) => ({ ...x, scenario: fn(x.scenario) }));
-  const setNext = (e: Employment) =>
-    setScenario((sc) => ({ ...sc, next: e, fy: fyOf(maxDate(sc.today, e.start || sc.today)) }));
-  const setCurrent = (e: Employment) => setScenario((sc) => ({ ...sc, current: e }));
-  const go = (step: StepId) => setSt((x) => ({ ...x, step, history: [...x.history, x.step] }));
+  const go = (step: StepId, editing: string | null = null) => setSt((x) => ({ ...x, step, editing, history: [...x.history, x.step] }));
   const back = () =>
-    setSt((x) => (x.history.length ? { ...x, step: x.history[x.history.length - 1], history: x.history.slice(0, -1) } : x));
+    setSt((x) => (x.history.length ? { ...x, step: x.history[x.history.length - 1], history: x.history.slice(0, -1), editing: x.step === 'job-edit' ? null : x.editing } : x));
 
-  const result = useMemo(() => (st.step === 'results' ? compute(effectiveScenario(st)) : null), [st]);
+  /** Replace one job; the offer's joining date decides which FY we're looking at. */
+  const setJob = (e: Employment) =>
+    setSt((x) => {
+      const employers = x.scenario.employers.map((j) => (j.id === e.id ? e : j));
+      const isOffer = employers[employers.length - 1].id === e.id;
+      const scenario: Scenario = { ...x.scenario, employers, fy: isOffer ? fyFor(x.scenario.today, e.start) : x.scenario.fy };
+      return { ...x, scenario };
+    });
 
-  const afterNext = () => go(joinsMidYear(s) ? 'current-q' : 'extras');
+  /** Re-merge a job's files after files or answers change. */
+  const remerge = (x: AppState, id: string, docsChanged: boolean): AppState => {
+    const emp = x.scenario.employers.find((j) => j.id === id)!;
+    const r = applyDocs(emp, x.choices[id] ?? {}, rules);
+    const employers = x.scenario.employers.map((j) => (j.id === id ? r.emp : j));
+    const isOffer = employers[employers.length - 1].id === id;
+    // An earlier job's letter can carry an old joining date: clamp it, and keep a sensible last day.
+    if (!isOffer) {
+      const e = employers.find((j) => j.id === id)!;
+      const offerStart = employers[employers.length - 1].start;
+      if (!e.end && offerStart) e.end = dayBefore(offerStart);
+    }
+    const tdsSoFar = { ...x.tdsSoFar };
+    if (!isOffer && docsChanged && r.ytdTds && (tdsSoFar[id] === undefined || tdsSoFar[id] === null)) tdsSoFar[id] = r.ytdTds.amount;
+    return {
+      ...x,
+      scenario: { ...x.scenario, employers, fy: isOffer ? fyFor(x.scenario.today, r.emp.start) : x.scenario.fy },
+      marks: { ...x.marks, [id]: r.marks },
+      sources: { ...x.sources, [id]: r.sources },
+      tdsSoFar,
+    };
+  };
 
-  function onNextExtracted(x: Extracted) {
-    const { emp, marks } = employmentFromExtract(x, 'New job', s.today);
-    setSt((st0) => ({
-      ...st0,
-      scenario: { ...st0.scenario, next: emp, fy: fyOf(maxDate(st0.scenario.today, emp.start)) },
-      marksNext: marks,
-      warningsNext: x.warnings,
-      step: 'review-next',
-      history: [...st0.history, st0.step],
-    }));
-  }
+  const addFiles = (id: string, files: ReadFile[]) =>
+    setSt((x) => {
+      const employers = x.scenario.employers.map((j) =>
+        j.id === id ? { ...j, docs: [...j.docs, ...files.map((f) => docFromExtract(f.x, uid(), f.name))] } : j,
+      );
+      const warnings = files.flatMap((f) => f.x.warnings.map((w) => (files.length > 1 ? `${f.name}: ${w}` : w)));
+      return remerge({ ...x, scenario: { ...x.scenario, employers }, warnings: { ...x.warnings, [id]: warnings } }, id, true);
+    });
+  const removeDoc = (id: string, docId: string) =>
+    setSt((x) => {
+      const employers = x.scenario.employers.map((j) => (j.id === id ? { ...j, docs: j.docs.filter((d) => d.id !== docId) } : j));
+      return remerge({ ...x, scenario: { ...x.scenario, employers } }, id, true);
+    });
+  const choose = (id: string, field: string, choice: string) =>
+    setSt((x) => remerge({ ...x, choices: { ...x.choices, [id]: { ...(x.choices[id] ?? {}), [field]: choice } } }, id, false));
 
-  function onCurrentExtracted(x: Extracted | null) {
-    let emp: Employment;
-    let marks = {};
-    let warnings: string[] = [];
-    if (x) {
-      ({ emp, marks } = employmentFromExtract(x, 'Current job', fyStart(s.fy)));
-      warnings = x.warnings.filter((w) => !/date of joining/.test(w));
-      // An old joining date just means "here since before this FY".
-      emp.start = emp.start > fyStart(s.fy) && emp.start < s.next.start ? emp.start : fyStart(s.fy);
-      emp.oneTimes = emp.oneTimes.filter((o) => o.kind !== 'joining' || o.month >= monthOf(fyStart(s.fy)));
-      emp.variable = undefined;
-      const tds = x.components.tds?.monthly;
-      if (tds && st.tdsSoFar === null) {
-        const done = Math.max(0, monthsBetween(monthOf(emp.start), monthOf(s.today)));
-        update({ tdsSoFar: Math.round(tds * done) });
-      }
-    } else emp = emptyEmployment('Current job', fyStart(s.fy));
-    emp.end = dayBefore(s.next.start);
-    setSt((st0) => ({
-      ...st0,
-      scenario: { ...st0.scenario, current: emp, fnf: st0.scenario.fnf ?? { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0, buyoutByNew: false } },
-      marksCurrent: marks,
-      warningsCurrent: warnings,
-      step: 'review-current',
-      history: [...st0.history, st0.step],
-    }));
-  }
+  const addJob = () =>
+    setSt((x) => {
+      const e = newEarlierJob(x.scenario);
+      const employers = sortJobs([e, ...x.scenario.employers]);
+      return { ...x, scenario: { ...x.scenario, employers }, step: 'job-edit', editing: e.id, history: [...x.history, x.step] };
+    });
+  const removeJob = (id: string) => setSt((x) => ({ ...x, scenario: { ...x.scenario, employers: x.scenario.employers.filter((j) => j.id !== id) } }));
 
-  const stepIndex = ['upload-next', 'review-next', 'current-q', 'extras', 'results'];
-  const progress =
-    st.step === 'results'
-      ? 1
-      : (Math.max(0, stepIndex.indexOf(st.step)) + (['upload-current', 'review-current', 'exit', 'prior'].includes(st.step) ? 2.5 : 0)) / 4.5;
+  const effective = useMemo(() => effectiveScenario(st), [st]);
+  const result = useMemo(() => (st.step === 'results' ? compute(effective, rules) : null), [effective, rules, st.step]);
+
+  const editing = st.step === 'job-edit' ? s.employers.find((j) => j.id === st.editing) : undefined;
+  const editingNext = editing ? s.employers[s.employers.indexOf(editing) + 1] : undefined;
+  const conflictsOpen = (id: string, e: Employment) => mergeDocs(e.docs).conflicts.some((c) => !(st.choices[id] ?? {})[c.field]);
+
+  const steps: StepId[] = ['offer-upload', 'offer-review', 'jobs', 'extras', 'results'];
+  const progress = (Math.max(0, steps.indexOf(st.step === 'job-edit' ? 'jobs' : st.step)) + 1) / steps.length;
 
   return (
-    <div class="app">
-      <header class="top">
-        <div class="brand">
-          <svg viewBox="0 0 24 24" aria-hidden="true" class="logo">
-            <rect x="2" y="5" width="20" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.8" />
-            <path d="M8 9h8M8 12h8M10.5 9c2 0 2 6-1.5 6l4 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-          </svg>
-          <div>
-            <div class="brand-name">In-hand</div>
-            <div class="brand-sub">What your offer really pays · {fyLabel(s.fy)}</div>
+    <RulesContext.Provider value={rules}>
+      <div class="app">
+        <header class="top">
+          <div class="brand">
+            <svg viewBox="0 0 24 24" aria-hidden="true" class="logo">
+              <rect x="2" y="5" width="20" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.8" />
+              <path d="M8 9h8M8 12h8M10.5 9c2 0 2 6-1.5 6l4 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+            <div>
+              <div class="brand-name">In-hand</div>
+              <div class="brand-sub">What your offer really pays · {fyLabel(s.fy)}</div>
+            </div>
           </div>
-        </div>
-        {st.step !== 'upload-next' && (
-          <button
-            type="button"
-            class="btn ghost small"
-            onClick={() => {
-              if (confirm('Start over? Everything you entered will be cleared.')) {
+          {st.step !== 'offer-upload' && (
+            <StartOver
+              onConfirm={() => {
                 clearSaved();
                 setSt(initialState());
-              }
-            }}
-          >
-            Start over
-          </button>
-        )}
-      </header>
-      <div class="progressbar" aria-hidden="true">
-        <span style={{ width: `${progress * 100}%` }} />
-      </div>
-
-      <main class="main">
-        {st.history.length > 0 && (
-          <button type="button" class="btn back" onClick={back}>
-            ← Back
-          </button>
-        )}
-        <h1>{TITLES[st.step]}</h1>
-
-        {st.step === 'upload-next' && (
-          <>
-            <p class="lead">
-              A ₹30 lakh CTC doesn't mean ₹2.5 lakh a month. Upload your offer letter and see what actually reaches your bank account each month until March, after PF,
-              tax and everything else.
-            </p>
-            <Uploader onExtracted={onNextExtracted} onManual={() => go('review-next')} />
-            <p class="muted small center">Works offline. Nothing you enter leaves this device.</p>
-          </>
-        )}
-
-        {st.step === 'review-next' && (
-          <>
-            <p class="lead">Fix anything that looks off. Fields marked “check this” were our best guess.</p>
-            <Warnings items={st.warningsNext} />
-            <div class="card">
-              <Field label="Company">
-                <input class="text" value={s.next.name} onInput={(e) => setNext({ ...s.next, name: (e.target as HTMLInputElement).value })} />
-              </Field>
-              <Field label="Date of joining" mark={st.marksNext.start}>
-                <DateInput value={s.next.start} onChange={(v) => setNext({ ...s.next, start: v })} ariaLabel="Date of joining" />
-              </Field>
-            </div>
-            <StructureEditor value={s.next.structure} marks={st.marksNext} onChange={(x) => setNext({ ...s.next, structure: x })} />
-            <OfferExtras emp={s.next} marks={st.marksNext} onChange={setNext} />
-            <Continue disabled={!s.next.structure.basic || !s.next.start} onClick={afterNext} why="Enter at least Basic and the joining date." />
-          </>
-        )}
-
-        {st.step === 'current-q' && (
-          <>
-            <p class="lead">
-              You join on {new Date(s.next.start).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}. Salary from earlier in{' '}
-              {fyLabel(s.fy)} is taxed together with the new one, so tell us about it.
-            </p>
-            <Choices
-              value={st.status}
-              onChange={(v) => {
-                update({ status: v });
-                if (v === 'current') go('upload-current');
-                else if (v === 'prior') {
-                  setScenario((sc) => ({ ...sc, prior: sc.prior ?? { gross: 0, tds: 0 } }));
-                  go('prior');
-                } else go('extras');
               }}
-              options={[
-                { value: 'current', label: 'Yes, I work somewhere now', sub: "We'll work out your last salary, full and final settlement and tax" },
-                { value: 'prior', label: 'I worked earlier this year, not now', sub: 'Just the totals from your old payslips' },
-                { value: 'none', label: 'No income this year', sub: 'First job, or on a break since April' },
-              ]}
             />
-          </>
-        )}
+          )}
+        </header>
+        <div class="progressbar" aria-hidden="true">
+          <span style={{ width: `${progress * 100}%` }} />
+        </div>
 
-        {st.step === 'upload-current' && (
-          <>
-            <p class="lead">Upload your current offer letter, revision letter or latest payslip. A recent payslip works best.</p>
-            <Uploader onExtracted={(x) => onCurrentExtracted(x)} onManual={() => onCurrentExtracted(null)} />
-          </>
-        )}
-
-        {st.step === 'review-current' && s.current && (
-          <>
-            <Warnings items={st.warningsCurrent} />
-            <div class="card">
-              <Field label="Company">
-                <input class="text" value={s.current.name} onInput={(e) => setCurrent({ ...s.current!, name: (e.target as HTMLInputElement).value })} />
-              </Field>
-              <Field label="Working there since" hint={`Anything before ${fyStart(s.fy)} doesn't matter for this year.`}>
-                <DateInput value={s.current.start} onChange={(v) => setCurrent({ ...s.current!, start: v })} ariaLabel="Working there since" />
-              </Field>
-            </div>
-            <StructureEditor value={s.current.structure} marks={st.marksCurrent} onChange={(x) => setCurrent({ ...s.current!, structure: x })} />
-            <div class="card">
-              <h3>Has your salary changed since then?</h3>
-              <p class="muted small">For example a hike or restructure after the letter or payslip you uploaded.</p>
-              <Choices
-                value={st.salaryChanged === null ? null : st.salaryChanged ? 'y' : 'n'}
-                onChange={(v) => {
-                  update({ salaryChanged: v === 'y' });
-                  const c = s.current!;
-                  if (v === 'y' && !c.revisions.length)
-                    setCurrent({ ...c, revisions: [{ from: monthOf(maxDate(s.today, fyStart(s.fy))), structure: { ...c.structure } }] });
-                  if (v === 'n') setCurrent({ ...c, revisions: [] });
-                }}
-                options={[
-                  { value: 'n', label: 'No, this is still my salary' },
-                  { value: 'y', label: 'Yes, it changed' },
-                ]}
-              />
-            </div>
-            {s.current.revisions.map((rv, i) => (
-              <>
-                <div class="card">
-                  <Field label="New salary applies from (month)">
-                    <input
-                      type="month"
-                      class="text"
-                      value={rv.from}
-                      onInput={(e) =>
-                        setCurrent({ ...s.current!, revisions: s.current!.revisions.map((x, j) => (j === i ? { ...x, from: (e.target as HTMLInputElement).value } : x)) })
-                      }
-                    />
-                  </Field>
-                </div>
-                <StructureEditor
-                  value={rv.structure}
-                  onChange={(x) => setCurrent({ ...s.current!, revisions: s.current!.revisions.map((y, j) => (j === i ? { ...y, structure: x } : y)) })}
-                />
-              </>
-            ))}
-            <div class="card">
-              <h3>Bonuses paid this year</h3>
-              <p class="muted small">Annual bonus, incentives or arrears paid (or due) at this job since April.</p>
-              <OneTimeEditor
-                items={s.current.oneTimes}
-                defaultMonth={monthOf(maxDate(s.today, fyStart(s.fy)))}
-                onChange={(o) => setCurrent({ ...s.current!, oneTimes: o })}
-                addLabel="+ Add a bonus"
-              />
-            </div>
-            <Continue disabled={!s.current.structure.basic} onClick={() => go('exit')} why="Enter at least Basic." />
-          </>
-        )}
-
-        {st.step === 'exit' && s.current && s.fnf && (
-          <ExitStep st={st} s={s} update={update} setCurrent={setCurrent} setFnf={(f) => setScenario((sc) => ({ ...sc, fnf: f }))} onNext={() => go('extras')} />
-        )}
-
-        {st.step === 'prior' && s.prior && (
-          <>
-            <p class="lead">Add up the payslips from earlier this year. The totals are enough.</p>
-            <div class="card">
-              <Field label="Total gross salary earned this FY" hint="Before deductions. Form 16 or the last payslip's year-to-date column has it.">
-                <Money value={s.prior.gross} onChange={(v) => setScenario((sc) => ({ ...sc, prior: { ...sc.prior!, gross: v } }))} ariaLabel="Prior gross salary" />
-              </Field>
-              <Field label="Total income tax (TDS) already deducted">
-                <Money value={s.prior.tds} onChange={(v) => setScenario((sc) => ({ ...sc, prior: { ...sc.prior!, tds: v } }))} ariaLabel="Prior TDS" />
-              </Field>
-            </div>
-            <Continue onClick={() => go('extras')} />
-          </>
-        )}
-
-        {st.step === 'extras' && (
-          <>
-            <p class="lead">Add any other payments you expect before March 31, such as a relocation allowance, retention bonus or referral bonus.</p>
-            <div class="card">
-              <OneTimeEditor
-                items={s.next.oneTimes.filter((o) => o.kind !== 'joining')}
-                defaultMonth={monthOf(maxDate(s.today, s.next.start))}
-                onChange={(o) => setNext({ ...s.next, oneTimes: [...s.next.oneTimes.filter((x) => x.kind === 'joining'), ...o.map((x) => ({ ...x, id: x.id || uid() }))] })}
-              />
-            </div>
-            <details class="card advanced">
-              <summary>Advanced</summary>
-              {(st.status === 'current' || st.status === 'prior') && (
-                <Field label="When will your new employer get Form 12B?" hint="It tells them your earlier salary and TDS so they deduct the right tax. Many people hand it in after the first payroll has already run.">
-                  <Choices
-                    value={s.settings.form12B}
-                    onChange={(v) => setScenario((sc) => ({ ...sc, settings: { ...sc.settings, form12B: v } }))}
-                    options={[
-                      { value: 'first', label: 'Before the first salary' },
-                      { value: 'second', label: 'Before the second salary' },
-                      { value: 'never', label: "I won't submit it" },
-                    ]}
-                  />
-                </Field>
-              )}
-              <Toggle
-                checked={s.settings.thirtyDayMonth}
-                onChange={(v) => setScenario((sc) => ({ ...sc, settings: { ...sc.settings, thirtyDayMonth: v } }))}
-                label="Payroll prorates on a 30-day month (instead of calendar days)"
-              />
-            </details>
-            <Continue label="Show my money" onClick={() => go('results')} />
-          </>
-        )}
-
-        {st.step === 'results' && result && (
-          <>
-            <Results
-              r={result}
-              s={effectiveScenario(st)}
-              showNextFy={st.showNextFy}
-              setShowNextFy={(v) => update({ showNextFy: v })}
-              onHike={(v) => setScenario((sc) => ({ ...sc, settings: { ...sc.settings, nextFyHike: v } }))}
-            />
-            <div class="actions">
-              <button type="button" class="btn" onClick={() => go('review-next')}>
-                Edit new offer
-              </button>
-              {st.status === 'current' && (
-                <button type="button" class="btn" onClick={() => go('review-current')}>
-                  Edit current job
+        <main class="main">
+          {rulesBanner && (
+            <div class="callout info" role="status">
+              <p>
+                Tax rules updated ({rules.version}). Your figures have been recalculated.{' '}
+                <button type="button" class="btn link inline" onClick={() => setRulesBanner(false)}>
+                  OK
                 </button>
-              )}
-              <button type="button" class="btn" onClick={() => downloadCsv(result)}>
-                Download CSV
-              </button>
+              </p>
             </div>
-          </>
-        )}
-      </main>
-    </div>
+          )}
+          {st.history.length > 0 && (
+            <button type="button" class="btn back" onClick={back}>
+              ← Back
+            </button>
+          )}
+          <h1>{editing ? editing.name || TITLES['job-edit'] : TITLES[st.step]}</h1>
+
+          {st.step === 'offer-upload' && (
+            <>
+              <p class="lead">
+                A ₹30 lakh CTC doesn't mean ₹2.5 lakh a month. Upload your offer letter and see what actually reaches your bank account each month until March, after PF,
+                tax and everything else.
+              </p>
+              <Uploader
+                onFiles={(f) => {
+                  addFiles(offer.id, f);
+                  go('offer-review');
+                }}
+                onManual={() => go('offer-review')}
+              />
+              <p class="muted small center">Works offline. Nothing you enter leaves this device.</p>
+            </>
+          )}
+
+          {st.step === 'offer-review' && (
+            <>
+              <p class="lead">Fix anything that looks off. Fields marked “check this” were our best guess.</p>
+              <DocsPanel emp={offer} choices={st.choices[offer.id] ?? {}} onAdd={(f) => addFiles(offer.id, f)} onRemove={(d) => removeDoc(offer.id, d)} onChoose={(f, c) => choose(offer.id, f, c)} />
+              <Warnings items={st.warnings[offer.id] ?? []} />
+              <div class="card">
+                <Field label="Company">
+                  <input id="offer-name" class="text" value={offer.name} onInput={(e) => setJob({ ...offer, name: (e.target as HTMLInputElement).value })} />
+                </Field>
+                <Field label="Date of joining" mark={st.marks[offer.id]?.start}>
+                  <DateInput value={offer.start} onChange={(v) => setJob({ ...offer, start: v })} ariaLabel="Date of joining" />
+                </Field>
+              </div>
+              <StructureEditor value={offer.structure} marks={st.marks[offer.id]} sources={st.sources[offer.id]} month={monthOf(offer.start || s.today)} onChange={(x) => setJob({ ...offer, structure: x })} />
+              <OfferExtras emp={offer} marks={st.marks[offer.id]} onChange={setJob} />
+              <Continue
+                disabled={!offer.structure.basic || !offer.start || conflictsOpen(offer.id, offer)}
+                why={conflictsOpen(offer.id, offer) ? 'Answer the questions about the files that disagree.' : 'Enter at least Basic and the joining date.'}
+                onClick={() => go(joinsMidYear(s) || earlierJobs(s).length ? 'jobs' : 'extras')}
+              />
+            </>
+          )}
+
+          {st.step === 'jobs' && (
+            <JobsStep s={s} onAdd={addJob} onEdit={(id) => go('job-edit', id)} onRemove={removeJob} onEditOffer={() => go('offer-review')} onNext={() => go('extras')} />
+          )}
+
+          {st.step === 'job-edit' && editing && editingNext && (
+            <JobEditStep
+              s={s}
+              emp={editing}
+              next={editingNext}
+              choices={st.choices[editing.id] ?? {}}
+              marks={st.marks[editing.id] ?? {}}
+              sources={st.sources[editing.id] ?? {}}
+              warnings={(st.warnings[editing.id] ?? []).filter((w) => !/date of joining/i.test(w))}
+              tdsSoFar={st.tdsSoFar[editing.id] ?? null}
+              ytdHint={[...editing.docs].reverse().find((d) => d.ytdTds !== undefined)?.ytdTds}
+              onChange={setJob}
+              onNextChange={setJob}
+              onTdsSoFar={(v) => update({ tdsSoFar: { ...st.tdsSoFar, [editing.id]: v } })}
+              onAddFiles={(f) => addFiles(editing.id, f)}
+              onRemoveDoc={(d) => removeDoc(editing.id, d)}
+              onChoose={(f, c) => choose(editing.id, f, c)}
+              onDone={() => {
+                setSt((x) => ({ ...x, scenario: { ...x.scenario, employers: sortJobs(x.scenario.employers) } }));
+                back();
+              }}
+            />
+          )}
+
+          {st.step === 'extras' && (
+            <>
+              <p class="lead">Add any other payments you expect from {offer.name || 'the new job'} before March 31, such as a relocation allowance, retention bonus or referral bonus.</p>
+              <div class="card">
+                <OneTimeEditor
+                  items={offer.oneTimes.filter((o) => o.kind !== 'joining')}
+                  defaultMonth={monthOf(maxDate(s.today, offer.start))}
+                  onChange={(o) => setJob({ ...offer, oneTimes: [...offer.oneTimes.filter((x) => x.kind === 'joining'), ...o] })}
+                />
+              </div>
+              <details class="card advanced">
+                <summary>Advanced</summary>
+                <Toggle
+                  checked={s.settings.thirtyDayMonth}
+                  onChange={(v) => update({ scenario: { ...s, settings: { ...s.settings, thirtyDayMonth: v } } })}
+                  label="Payroll prorates on a 30-day month (instead of calendar days)"
+                />
+              </details>
+              <Continue label="Show my money" onClick={() => go('results')} />
+            </>
+          )}
+
+          {st.step === 'results' && result && (
+            <>
+              <Results
+                r={result}
+                s={effective}
+                showNextFy={st.showNextFy}
+                setShowNextFy={(v) => update({ showNextFy: v })}
+                onHike={(v) => update({ scenario: { ...s, settings: { ...s.settings, nextFyHike: v } } })}
+              />
+              <div class="actions">
+                <button type="button" class="btn" onClick={() => go('offer-review')}>
+                  Edit offer
+                </button>
+                {earlierJobs(s).length > 0 && (
+                  <button type="button" class="btn" onClick={() => go('jobs')}>
+                    Edit earlier jobs
+                  </button>
+                )}
+                <button type="button" class="btn" onClick={() => downloadCsv(result)}>
+                  Download CSV
+                </button>
+              </div>
+            </>
+          )}
+
+          <RulesFooter rules={rules} />
+        </main>
+      </div>
+    </RulesContext.Provider>
   );
 }
 
-function monthsBetween(a: string, b: string) {
-  let n = 0;
-  for (let m = a; m < b; m = addMonths(m, 1)) n++;
-  return n;
-}
-
-function Continue(props: { onClick: () => void; disabled?: boolean; why?: string; label?: string }) {
+function RulesFooter({ rules }: { rules: Rules }) {
+  const d = new Date(`${rules.updated}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   return (
-    <div class="continue">
-      {props.disabled && props.why && <p class="muted small">{props.why}</p>}
-      <button type="button" class="btn primary wide" disabled={props.disabled} onClick={props.onClick}>
-        {props.label ?? 'Continue'}
-      </button>
-    </div>
+    <details class="rules-foot">
+      <summary>
+        Tax rules updated {d} · v{rules.version}
+      </summary>
+      <p class="muted small">Checked automatically whenever you're online. Without internet, the app uses the last rules it downloaded.</p>
+      <ul class="small">
+        {rules.sources.map((x) => (
+          <li>
+            <a href={x.url} target="_blank" rel="noopener">
+              {x.title}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
-function ExitStep(props: {
-  st: AppState;
-  s: Scenario;
-  update: (p: Partial<AppState>) => void;
-  setCurrent: (e: Employment) => void;
-  setFnf: (f: FnF) => void;
-  onNext: () => void;
-}) {
-  const { s, st } = props;
-  const cur = s.current!;
-  const fnf = s.fnf!;
-  const items = fnfItems({ ...s, current: cur, fnf });
-  const setF = (patch: Partial<FnF>) => props.setFnf({ ...fnf, ...patch });
+/** Two-tap reset (no browser confirm dialog, which embedded views block). */
+function StartOver({ onConfirm }: { onConfirm: () => void }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
   return (
-    <>
-      <div class="card">
-        <Field label="Last working day" hint="Usually the day before you join the new job.">
-          <DateInput value={cur.end} onChange={(v) => props.setCurrent({ ...cur, end: v })} ariaLabel="Last working day" />
-        </Field>
-        <Field
-          label="Income tax deducted so far this year (optional)"
-          hint="Year-to-date TDS from your latest payslip. Leave it empty and we'll estimate what payroll would have deducted."
-        >
-          <Money value={st.tdsSoFar ?? 0} onChange={(v) => props.update({ tdsSoFar: v || null })} ariaLabel="TDS so far" />
-        </Field>
-      </div>
-      <div class="card">
-        <h3>Full & final settlement</h3>
-        <Field label="Unused leave you'll be paid for (days)" hint="Leave encashment on resignation is tax-free up to ₹25 lakh, but payroll still deducts TDS on it. You get that back when you file.">
-          <Num value={fnf.leaveDays} onChange={(v) => setF({ leaveDays: v })} suffix="days" ariaLabel="Leave days" />
-        </Field>
-        <Field label="Notice period shortfall recovered (days)" hint="Days of notice you won't serve, which the employer deducts.">
-          <Num value={fnf.noticeDaysRecovered} onChange={(v) => setF({ noticeDaysRecovered: v })} suffix="days" ariaLabel="Notice days recovered" />
-        </Field>
-        <Field label="Amount to pay back (joining bonus, relocation etc.)">
-          <Money value={fnf.clawback} onChange={(v) => setF({ clawback: v })} ariaLabel="Clawback amount" />
-        </Field>
-        {items && items.noticeRecovery + items.clawback > 0 && (
-          <Toggle checked={fnf.buyoutByNew} onChange={(v) => setF({ buyoutByNew: v })} label="My new employer will reimburse this (notice buyout)" />
-        )}
-        {items && (items.leaveEncashment > 0 || items.noticeRecovery > 0) && (
-          <p class="note">
-            One day's basic = {rs(items.perDay)}. Leave encashment {rs(items.leaveEncashment)}
-            {items.noticeRecovery > 0 && <>, notice recovery {rs(items.noticeRecovery)}</>}.
-          </p>
-        )}
-      </div>
-      <Continue disabled={!cur.end} onClick={props.onNext} />
-    </>
+    <button type="button" class={`btn small ${armed ? 'danger' : 'ghost'}`} onClick={() => (armed ? onConfirm() : setArmed(true))}>
+      {armed ? 'Tap again to clear' : 'Start over'}
+    </button>
   );
 }

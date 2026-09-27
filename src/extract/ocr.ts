@@ -6,7 +6,8 @@ export type Progress = (status: string, fraction: number) => void;
 
 export async function ocrImage(file: Blob, onProgress?: Progress): Promise<string> {
   const { createWorker, OEM, PSM } = await import('tesseract.js');
-  const base = `${import.meta.env.BASE_URL}ocr/`;
+  // Absolute URL: the worker resolves relative paths against its own location, not the page.
+  const base = new URL(`${import.meta.env.BASE_URL}ocr/`, document.baseURI).href;
   const worker = await createWorker('eng', OEM.LSTM_ONLY, {
     workerPath: `${base}worker.min.js`,
     corePath: base,

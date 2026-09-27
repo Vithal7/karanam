@@ -14,24 +14,25 @@ function niceMax(v: number) {
   return 10 * p;
 }
 
-/** Stacked monthly in-hand bars, one colour per employer, with a tap/hover tooltip. */
-export function CashflowChart(props: { months: MonthSummary[]; currentName?: string; nextName: string }) {
+/** Colour slot per job: the offer is always slot 1 (blue); earlier jobs take 2 and 3 in order. */
+export const seriesClass = (index: number, count: number) => (index === count - 1 ? 's1' : `s${index + 2}`);
+
+/** Stacked monthly in-hand bars, one colour per job, with a tap/hover tooltip. */
+export function CashflowChart(props: { months: MonthSummary[]; names: string[] }) {
   const [hover, setHover] = useState<number | null>(null);
   const ms = props.months;
-  const byEmp = ms.map((m) => ({
-    cur: m.lines.filter((l) => l.employer === 'current').reduce((a, l) => a + Math.max(0, l.inHand), 0),
-    nxt: m.lines.filter((l) => l.employer === 'next').reduce((a, l) => a + Math.max(0, l.inHand), 0),
-  }));
-  const max = niceMax(Math.max(...byEmp.map((b) => b.cur + b.nxt)));
+  const n = props.names.length;
+  const stacks = ms.map((m) => props.names.map((_, k) => m.lines.filter((l) => l.employer === k).reduce((a, l) => a + Math.max(0, l.inHand), 0)));
+  const max = niceMax(Math.max(...stacks.map((st) => st.reduce((a, b) => a + b, 0))));
   const iw = W - PAD.l - PAD.r;
   const ih = H - PAD.t - PAD.b;
   const slot = iw / 12;
   const bw = Math.min(22, slot - 6);
   const y = (v: number) => PAD.t + ih - (v / max) * ih;
   const ticks = [0, max / 2, max];
-  const hasCur = byEmp.some((b) => b.cur > 0);
+  const present = props.names.map((_, k) => stacks.some((st) => st[k] > 0));
 
-  // Bar with only the top corners rounded (4px), anchored to the baseline.
+  // Bar with only the top corners rounded (4px), anchored to its base.
   const bar = (x: number, y0: number, y1: number, roundTop: boolean) => {
     const h = y0 - y1;
     if (h <= 0.5) return '';
@@ -45,16 +46,14 @@ export function CashflowChart(props: { months: MonthSummary[]; currentName?: str
       <figcaption class="chart-head">
         <span class="chart-title">Money reaching your bank each month</span>
         <span class="legend">
-          {hasCur && (
-            <span>
-              <i class="sw s2" />
-              {props.currentName || 'Current job'}
-            </span>
+          {props.names.map((name, k) =>
+            present[k] ? (
+              <span>
+                <i class={`sw ${seriesClass(k, n)}`} />
+                {name || `Job ${k + 1}`}
+              </span>
+            ) : null,
           )}
-          <span>
-            <i class="sw s1" />
-            {props.nextName || 'New job'}
-          </span>
         </span>
       </figcaption>
       <div class="chart-box">
@@ -69,15 +68,17 @@ export function CashflowChart(props: { months: MonthSummary[]; currentName?: str
           ))}
           {ms.map((m, i) => {
             const x = PAD.l + i * slot + (slot - bw) / 2;
-            const b = byEmp[i];
-            const base = y(0);
-            const yc = y(b.cur);
-            const yt = y(b.cur + b.nxt);
-            const gap = b.cur > 0 && b.nxt > 0 ? 2 : 0;
+            const st = stacks[i];
+            const topIndex = st.map((v, k) => (v > 0 ? k : -1)).reduce((a, b) => Math.max(a, b), -1);
+            let acc = 0;
             return (
               <g class={`col ${m.past ? 'past' : ''} ${hover === i ? 'hover' : ''}`}>
-                <path d={bar(x, base, yc, b.nxt === 0)} class="s2" />
-                <path d={bar(x, yc - gap, yt, true)} class="s1" />
+                {st.map((v, k) => {
+                  if (v <= 0) return null;
+                  const base = y(acc) - (acc > 0 ? 2 : 0); // 2px surface gap between segments
+                  acc += v;
+                  return <path d={bar(x, base, y(acc), k === topIndex)} class={seriesClass(k, n)} />;
+                })}
                 <text x={x + bw / 2} y={H - 8} class="tick" text-anchor="middle">
                   {monthName(m.month, false).slice(0, 1)}
                   <title>{monthName(m.month)}</title>
@@ -101,7 +102,7 @@ export function CashflowChart(props: { months: MonthSummary[]; currentName?: str
             {tip.lines.length === 0 && <div class="muted">No salary</div>}
             {tip.lines.map((l) => (
               <div class="tt-row">
-                <i class={`sw ${l.employer === 'current' ? 's2' : 's1'}`} />
+                <i class={`sw ${seriesClass(l.employer, n)}`} />
                 <span>{l.employerName}</span>
                 <span class="num">{rs(l.inHand)}</span>
               </div>

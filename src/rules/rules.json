@@ -1,0 +1,41 @@
+{
+  "version": "2026.09.17",
+  "updated": "2026-09-17",
+  "sources": [
+    { "title": "Finance Act 2025: new regime slabs, ₹12 lakh rebate, ₹75,000 standard deduction (s.115BAC, s.87A, s.16)", "url": "https://incometaxindia.gov.in" },
+    { "title": "Income-tax Act s.80CCD(2): employer NPS up to 14% of salary under the new regime", "url": "https://incometaxindia.gov.in" },
+    { "title": "s.10(10AA)(ii): leave encashment exemption limit ₹25 lakh for non-government employees (CBDT, 2023)", "url": "https://incometaxindia.gov.in" },
+    { "title": "EPF wage ceiling ₹25,000 from 17 Sep 2026 (entered from user report; to be confirmed against the EPFO notification by the monthly rules check)", "url": "https://www.epfindia.gov.in" }
+  ],
+  "incomeTax": {
+    "2025": {
+      "standardDeduction": 75000,
+      "slabs": [
+        { "upto": 400000, "rate": 0 },
+        { "upto": 800000, "rate": 0.05 },
+        { "upto": 1200000, "rate": 0.1 },
+        { "upto": 1600000, "rate": 0.15 },
+        { "upto": 2000000, "rate": 0.2 },
+        { "upto": 2400000, "rate": 0.25 },
+        { "upto": null, "rate": 0.3 }
+      ],
+      "rebateLimit": 1200000,
+      "surcharge": [
+        { "above": 5000000, "rate": 0.1 },
+        { "above": 10000000, "rate": 0.15 },
+        { "above": 20000000, "rate": 0.25 }
+      ],
+      "cess": 0.04,
+      "npsCapPctOfBasic": 0.14,
+      "leaveEncashmentCap": 2500000
+    }
+  },
+  "epf": {
+    "rate": 0.12,
+    "wageCeiling": [
+      { "from": "2014-09-01", "amount": 15000 },
+      { "from": "2026-09-17", "amount": 25000 }
+    ]
+  },
+  "professionalTax": { "defaultMonthly": 200 }
+}

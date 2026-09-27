@@ -42,6 +42,10 @@ export interface Extracted {
   components: Partial<Record<ComponentKey, Found>>;
   doj?: { date: string; confidence: Confidence };
   employer?: string;
+  /** Letter date, or the first day of the payslip's month (YYYY-MM-DD). */
+  docDate?: string;
+  /** Year-to-date income tax on a payslip. */
+  ytdTds?: number;
   warnings: string[];
 }
 
@@ -351,5 +355,47 @@ export function parseText(text: string): Extracted {
   if (!components.basic) warnings.push('Could not find Basic salary. Please enter it.');
   if (kind === 'offer' && !doj) warnings.push('Could not find the date of joining. Please enter it.');
 
-  return { kind, components, doj, employer, warnings };
+  return { kind, components, doj, employer, docDate: findDocDate(lines, kind), ytdTds: findYtdTds(lines, text), warnings };
+}
+
+/** The payslip month ("Payslip for the month of August 2026", "Pay period: Aug-2026") or the letter's date. */
+export function findDocDate(lines: string[], kind: Extracted['kind']): string | undefined {
+  const monthYear = new RegExp(`${MON_RE}[\\s,'-]*(\\d{4}|\\d{2})\\b`, 'i');
+  if (kind === 'payslip') {
+    for (const l of lines.slice(0, 15)) {
+      if (!/pay\s*slip|salary\s+slip|month|pay\s+period/i.test(l)) continue;
+      const m = monthYear.exec(l);
+      if (m) {
+        const mo = MONTHS.indexOf(m[1].slice(0, 3).toLowerCase()) + 1;
+        const d = validDate(year4(+m[2]), mo, 1);
+        if (d) return d;
+      }
+    }
+  }
+  for (const l of lines.slice(0, 12)) {
+    if (/^\s*(date|dated)\b|^\s*(effective|with\s+effect)/i.test(l)) {
+      const d = findDate(l);
+      if (d) return d;
+    }
+  }
+  // Letters usually carry their date near the top.
+  for (const l of lines.slice(0, 6)) {
+    if (/join|report|effective/i.test(l)) continue;
+    const d = findDate(l);
+    if (d) return d;
+  }
+  return undefined;
+}
+
+/** Year-to-date TDS from a payslip row like "Income Tax  18,019  1,72,170" under a YTD column. */
+export function findYtdTds(lines: string[], text: string): number | undefined {
+  if (!/\bytd\b|year\s*to\s*date|cumulative/i.test(text)) return undefined;
+  for (const l of lines)
+    for (const seg of segments(l)) {
+      if (seg.key !== 'tds') continue;
+      // Count every figure (a current-month TDS of 0 still fills a column).
+      const tokens = (seg.text.match(/\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?/g) ?? []).map((x) => parseFloat(x.replace(/,/g, '')));
+      if (tokens.length >= 2) return Math.max(...tokens);
+    }
+  return undefined;
 }

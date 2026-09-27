@@ -5,25 +5,30 @@ import type { Scenario } from '../types';
 const base = (start: string): Scenario => ({
   fy: 2026,
   today: '2026-04-01',
-  settings: { thirtyDayMonth: false, form12B: 'first', nextFyHike: 0 },
-  next: {
+  settings: { thirtyDayMonth: false, nextFyHike: 0 },
+  employers: [
+  {
+    id: 'x',
+    form12B: 'first',
+    docs: [],
     name: 'X',
     start,
     end: '',
     ctc: 1_800_000,
-    structure: { basic: 60000, hra: 30000, special: 50000, others: [], epf: 1800, pt: 200, npsPct: 0, npsInGross: true },
+    structure: { basic: 60000, hra: 30000, special: 50000, others: [], epfMode: 'fixed', epf: 1800, pt: 200, npsPct: 0, npsInGross: true },
     revisions: [],
     oneTimes: [],
     recoveries: [],
     tdsKnown: {},
   },
+  ],
 });
 
 describe('single employer, full year', () => {
   const r = compute(base('2020-06-01'));
   it('spreads tax evenly and settles to zero at filing', () => {
-    expect(r.nextLines).toHaveLength(12);
-    const tds = r.nextLines.map((l) => l.tds);
+    expect(r.employers[0].lines).toHaveLength(12);
+    const tds = r.employers[0].lines.map((l) => l.tds);
     tds.forEach((t) => expect(t).toBeCloseTo(tds[0], 6));
     expect(Math.abs(r.filing.balance)).toBeLessThan(1);
     // 16.8L gross - 75k = 16.05L taxable -> 60k + 60k + 1k... slab tax 1,21,000; +4% cess
@@ -31,7 +36,7 @@ describe('single employer, full year', () => {
     expect(r.filing.total).toBeCloseTo(121_000 * 1.04, 2);
   });
   it('in-hand = gross - PF - PT - TDS', () => {
-    const l = r.nextLines[0];
+    const l = r.employers[0].lines[0];
     expect(l.inHand).toBeCloseTo(140000 - 1800 - 200 - l.tds, 6);
   });
 });
@@ -39,7 +44,7 @@ describe('single employer, full year', () => {
 describe('joining mid-year with no earlier income', () => {
   const r = compute(base('2026-10-16'));
   it('prorates the first month by calendar days and stays under the 87A limit', () => {
-    expect(r.nextLines[0].factor).toBeCloseTo(16 / 31, 6);
+    expect(r.employers[0].lines[0].factor).toBeCloseTo(16 / 31, 6);
     expect(r.filing.total).toBe(0);
   });
 });

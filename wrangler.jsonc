@@ -1,0 +1,12 @@
+// Cloudflare Workers static-assets deploy. `npm run build` produces dist/;
+// `npx wrangler deploy` uploads it. No server code: the app runs entirely in the browser.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "karanamlekkalu",
+  "compatibility_date": "2026-09-25",
+  "assets": {
+    "directory": "./dist",
+    // Unknown paths fall back to the app shell (no 404 page needed).
+    "not_found_handling": "single-page-application"
+  }
+}

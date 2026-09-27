@@ -6,6 +6,14 @@ export interface Allowance {
   amount: number;
 }
 
+/**
+ * How employee PF is worked out:
+ *  statutory - 12% of basic, capped at the EPF wage ceiling in force that month (₹15k, ₹25k...)
+ *  fullBasic - 12% of full basic, no cap
+ *  fixed     - the amount in `epf`
+ */
+export type EpfMode = 'statutory' | 'fullBasic' | 'fixed';
+
 /** A monthly salary structure, as it would appear on a payslip. */
 export interface Structure {
   basic: number;
@@ -14,7 +22,8 @@ export interface Structure {
   special: number;
   /** Any other fixed monthly allowances (LTA, conveyance, ...). All taxable. */
   others: Allowance[];
-  /** Employee PF deducted from salary each month. */
+  epfMode: EpfMode;
+  /** Employee PF per month when epfMode is 'fixed'. */
   epf: number;
   /** Professional tax deducted each month (0 in states without PT). */
   pt: number;
@@ -34,20 +43,13 @@ export interface Revision {
   structure: Structure;
 }
 
-export type OneTimeKind =
-  | 'joining'
-  | 'variable'
-  | 'bonus'
-  | 'leaveEncashment'
-  | 'buyout'
-  | 'other';
+export type OneTimeKind = 'joining' | 'variable' | 'bonus' | 'leaveEncashment' | 'buyout' | 'other';
 
 export interface OneTime {
   id: string;
   label: string;
   kind: OneTimeKind;
   amount: number;
-  /** Payout month. For a notice buyout, empty means "with the Form 12B month". */
   month: string;
   /** false for exempt receipts (e.g. reimbursements); true for almost everything. */
   taxable: boolean;
@@ -71,7 +73,33 @@ export interface Recovery {
   month: string;
 }
 
+export interface FnF {
+  leaveDays: number;
+  noticeDaysRecovered: number;
+  clawback: number;
+  /** The next employer reimburses notice recovery + clawback. */
+  buyoutByNext: boolean;
+}
+
+/** When the employer gets Form 12B (earlier salary + TDS) relative to the joining month. */
+export type Form12B = 'first' | 'second' | 'never';
+
+/** Numbers pulled from one uploaded file. File contents are never stored. */
+export interface DocRecord {
+  id: string;
+  name: string;
+  kind: 'offer' | 'payslip';
+  /** Letter date or payslip month (YYYY-MM-DD), if found. */
+  docDate?: string;
+  /** Monthly component values keyed by field (basic, hra, special, epf, pt, ctc, ...). */
+  fields: Record<string, number>;
+  doj?: string;
+  employer?: string;
+  ytdTds?: number;
+}
+
 export interface Employment {
+  id: string;
   name: string;
   /** First working day (clamped to FY start). */
   start: string;
@@ -85,31 +113,22 @@ export interface Employment {
   /** Annual CTC as stated in the letter, used only for the comparison view. */
   ctc: number;
   /**
-   * TDS actually deducted so far, month-by-month ("YYYY-MM" -> amount). Months not listed
-   * are projected the way payroll would.
+   * TDS actually deducted, month-by-month ("YYYY-MM" -> amount). Months not listed are
+   * projected the way payroll would.
    */
   tdsKnown: Record<string, number>;
+  /** Full & final settlement, for a job that ends before the next one starts. */
+  fnf?: FnF;
+  /** For every job after the first: when it learns about the earlier ones. */
+  form12B: Form12B;
+  docs: DocRecord[];
+  /** "I only know the totals": no monthly detail, just gross earned and TDS this FY. */
+  totalsOnly?: { gross: number; tds: number };
 }
-
-export interface FnF {
-  leaveDays: number;
-  noticeDaysRecovered: number;
-  clawback: number;
-  /** New employer reimburses notice recovery + clawback. */
-  buyoutByNew: boolean;
-}
-
-export interface PriorIncome {
-  gross: number;
-  tds: number;
-}
-
-export type Form12B = 'first' | 'second' | 'never';
 
 export interface Settings {
   /** Payroll proration: divide by 30 instead of calendar days. */
   thirtyDayMonth: boolean;
-  form12B: Form12B;
   /** Hike % for next FY projection (0.1 = 10%). */
   nextFyHike: number;
 }
@@ -119,16 +138,15 @@ export interface Scenario {
   fy: number;
   /** "Today", used to mark past months. */
   today: string;
-  next: Employment;
-  current?: Employment;
-  fnf?: FnF;
-  prior?: PriorIncome;
+  /** 1-3 jobs in date order. The last one is the offer being evaluated. */
+  employers: Employment[];
   settings: Settings;
 }
 
 export interface MonthLine {
   month: string;
-  employer: 'current' | 'next' | 'prior';
+  /** Index into Scenario.employers. */
+  employer: number;
   employerName: string;
   factor: number;
   basic: number;

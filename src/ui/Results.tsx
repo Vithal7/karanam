@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import type { Result } from '../domain/compute';
+import { lastOf, type Result } from '../domain/compute';
 import { fyLabel, monthName } from '../domain/fy';
 import type { MonthLine, Scenario } from '../domain/types';
 import { pct, rs } from '../format';
@@ -117,7 +117,7 @@ function MonthTable({ r }: { r: Result }) {
 }
 
 function WhyLess({ s, r }: { s: Scenario; r: Result }) {
-  const ctc = s.next.ctc;
+  const ctc = lastOf(s.employers).ctc;
   if (!ctc) return null;
   const st = r.steady;
   const notMonthly = ctc / 12 - st.gross;
@@ -161,7 +161,8 @@ function WhyLess({ s, r }: { s: Scenario; r: Result }) {
 function TaxPosition({ r, s }: { r: Result; s: Scenario }) {
   const f = r.filing;
   const refund = f.balance < 0;
-  const firstNext = r.nextStage.find((x) => !x.known);
+  const offer = lastOf(r.employers);
+  const earlier = s.employers.length > 1;
   return (
     <div class="card">
       <h3>Your tax for {fyLabel(r.fy)}</h3>
@@ -207,14 +208,14 @@ function TaxPosition({ r, s }: { r: Result; s: Scenario }) {
         <dt class="strong">{refund ? 'Refund when you file' : 'To pay when you file'}</dt>
         <dd class={`num strong ${refund ? 'good' : f.balance > 1000 ? 'bad' : ''}`}>{rs(Math.abs(f.balance))}</dd>
       </dl>
-      {s.current && r.form12B && firstNext && (
+      {earlier && offer.form12B && (
         <p class="note">
-          Give your new employer <strong>Form 12B</strong> (your earlier salary and TDS) so it can deduct tax correctly. We assumed they have it by{' '}
-          {monthName(r.form12B)}.
+          Give {offer.name || 'your new employer'} <strong>Form 12B</strong> (your earlier salary and TDS this year) so it can deduct tax correctly. We assumed they have it
+          by {monthName(offer.form12B)}.
         </p>
       )}
-      {s.current && !r.form12B && f.balance > 1000 && (
-        <p class="note">Without Form 12B your new employer taxes you as if you earned nothing earlier this year. That's why there is tax left to pay at filing.</p>
+      {r.employers.slice(1).some((e) => !e.form12B) && f.balance > 1000 && (
+        <p class="note">Without Form 12B an employer taxes you as if you earned nothing earlier this year. That's why there is tax left to pay at filing.</p>
       )}
       {f.balance > 10000 && (
         <p class="note">
@@ -231,7 +232,7 @@ function NextFy({ r, s, onHike }: { r: Result; s: Scenario; onHike: (v: number) 
   const typical = monthly[0] ?? n.lines[0];
   return (
     <div class="card">
-      <h3>{fyLabel(n.fy)} at {s.next.name || 'the new job'}</h3>
+      <h3>{fyLabel(n.fy)} at {lastOf(s.employers).name || 'the new job'}</h3>
       <div class="grid2">
         <Field label="Expected hike">
           <Percent value={s.settings.nextFyHike} onChange={onHike} ariaLabel="Expected hike percent" />
@@ -301,10 +302,12 @@ export function Results(props: {
   const [showStage, setShowStage] = useState(false);
   const f = r.filing;
   const remainingFrom = r.months.find((m) => !m.past && m.lines.length)?.month;
+  const offer = lastOf(s.employers);
+  const stage = lastOf(r.employers).stage;
   return (
     <div class="results">
       <div class="stats">
-        {s.next.ctc > 0 && <Stat label="CTC in the letter" value={rs(s.next.ctc)} sub={`${rs(s.next.ctc / 12)} ÷ 12`} />}
+        {offer.ctc > 0 && <Stat label="CTC in the letter" value={rs(offer.ctc)} sub={`${rs(offer.ctc / 12)} ÷ 12`} />}
         <Stat label="In hand at the new job, a normal month" value={rs(r.steady.inHand)} sub={`after ${rs(r.steady.tds)} tax`} />
         <Stat
           label={remainingFrom ? `Cash to you, ${monthName(remainingFrom, false)}–Mar` : 'Cash to you this year'}
@@ -318,17 +321,26 @@ export function Results(props: {
         />
       </div>
 
-      <CashflowChart months={r.months} currentName={s.current?.name} nextName={s.next.name} />
+      <CashflowChart months={r.months} names={s.employers.map((e) => e.name)} />
       <MonthTable r={r} />
+      {r.employers.some((e) => e.totalsOnly) && (
+        <p class="muted small">
+          {r.employers
+            .filter((e) => e.totalsOnly)
+            .map((e) => `${e.name || 'An earlier job'} (${rs(e.totalsOnly!.gross)} earned, ${rs(e.totalsOnly!.tds)} tax)`)
+            .join(', ')}{' '}
+          is counted in your tax but not shown month by month, because only the totals were entered.
+        </p>
+      )}
       <p class="muted small">Tap a month for the details. Faded months are already paid. Estimated TDS follows how payroll spreads tax over the months left in the year.</p>
 
       <WhyLess s={s} r={r} />
       <TaxPosition r={r} s={s} />
 
-      {r.nextStage.length > 0 && (
+      {stage.length > 0 && (
         <div class="card">
           <button type="button" class="btn link" aria-expanded={showStage} onClick={() => setShowStage(!showStage)}>
-            {showStage ? 'Hide' : 'Show'} how the new employer works out TDS
+            {showStage ? 'Hide' : 'Show'} how {offer.name || 'the new employer'} works out TDS
           </button>
           {showStage && (
             <table class="stage">
@@ -341,7 +353,7 @@ export function Results(props: {
                 </tr>
               </thead>
               <tbody>
-                {r.nextStage.map((x) => (
+                {stage.map((x) => (
                   <tr>
                     <td>{monthName(x.month)}</td>
                     <td class="num r">{rs(x.taxable)}</td>

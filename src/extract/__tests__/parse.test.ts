@@ -101,3 +101,20 @@ describe('monthOffsetIn', () => {
     expect(monthOffsetIn('no timing here')).toBeUndefined();
   });
 });
+
+describe('document dates and YTD tax', () => {
+  it('reads the payslip month and YTD TDS', () => {
+    const r = parseText(`Salary Slip for the month of September 2026
+Earnings Amount Deductions Current YTD
+Basic 82,080 Income Tax 0 1,72,170`);
+    expect(r.docDate).toBe('2026-09-01');
+    expect(r.ytdTds).toBe(172170);
+  });
+  it('reads a letter date near the top', () => {
+    const r = parseText(`ACME Technologies Private Limited
+Date: 15/10/2026
+Dear Candidate, your date of joining will be 12th November 2026.`);
+    expect(r.docDate).toBe('2026-10-15');
+    expect(r.doj?.date).toBe('2026-11-12');
+  });
+});

@@ -4,7 +4,7 @@ import { ocrImage, type Progress } from './ocr';
 async function pdfText(file: Blob, onProgress?: Progress): Promise<string> {
   const pdfjs = await import('pdfjs-dist');
   const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
-  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(workerUrl, document.baseURI).href;
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
   const pages: string[] = [];
   for (let p = 1; p <= doc.numPages; p++) {
@@ -41,7 +41,7 @@ async function docxText(file: Blob): Promise<string> {
   return el.value;
 }
 
-export const ACCEPT = '.pdf,.docx,.txt,image/*,application/pdf';
+export const ACCEPT = '.pdf,.docx,.txt,image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 export async function fileToText(file: File, onProgress?: Progress): Promise<{ text: string; ocr: boolean }> {
   const name = file.name.toLowerCase();

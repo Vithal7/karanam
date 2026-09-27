@@ -1,15 +1,19 @@
 import { useState } from 'preact/hooks';
-import { fixedMonthly } from '../domain/schedule';
-import { NEW_REGIME } from '../domain/tax';
-import type { Employment, OneTime, OneTimeKind, Structure } from '../domain/types';
+import { monthName } from '../domain/fy';
+import { epfFor, fixedMonthly } from '../domain/schedule';
+import type { EpfMode, Employment, OneTime, OneTimeKind, Structure } from '../domain/types';
+import { rulesFor } from '../rules';
 import { rs, uid } from '../format';
 import type { FieldMarks } from '../state';
+import { useRules } from './rulesContext';
 import { Field, Money, MonthInput, Percent, Segmented, Toggle } from './controls';
 
 type Period = 'm' | 'y';
 
-export function StructureEditor(props: { value: Structure; onChange: (s: Structure) => void; marks?: FieldMarks }) {
+export function StructureEditor(props: { value: Structure; onChange: (s: Structure) => void; marks?: FieldMarks; sources?: Record<string, string>; month?: string }) {
   const [period, setPeriod] = useState<Period>('m');
+  const rules = useRules();
+  const src = props.sources ?? {};
   const s = props.value;
   const m = props.marks ?? {};
   const set = (patch: Partial<Structure>) => props.onChange({ ...s, ...patch });
@@ -30,13 +34,13 @@ export function StructureEditor(props: { value: Structure; onChange: (s: Structu
           ]}
         />
       </div>
-      <Field label="Basic" mark={m.basic}>
+      <Field label="Basic" mark={m.basic} hint={src.basic && `From ${src.basic}`}>
         <Money value={s.basic} scale={scale} onChange={(v) => set({ basic: v })} ariaLabel={`Basic ${per}`} />
       </Field>
-      <Field label="HRA" mark={m.hra}>
+      <Field label="HRA" mark={m.hra} hint={src.hra && `From ${src.hra}`}>
         <Money value={s.hra} scale={scale} onChange={(v) => set({ hra: v })} ariaLabel={`HRA ${per}`} />
       </Field>
-      <Field label="Special / flexi allowance" mark={m.special} hint="Whatever balances the fixed pay: special, flexi, misc or personal allowance.">
+      <Field label="Special / flexi allowance" mark={m.special} hint={src.special ? `From ${src.special}` : 'Whatever balances the fixed pay: special, flexi, misc or personal allowance.'}>
         <Money value={s.special} scale={scale} onChange={(v) => set({ special: v })} ariaLabel={`Special allowance ${per}`} />
       </Field>
       {s.others.map((o, i) => (
@@ -64,13 +68,23 @@ export function StructureEditor(props: { value: Structure; onChange: (s: Structu
       </div>
 
       <h3 class="mt">Taken out of your pay</h3>
-      <Field label="Your PF contribution (per month)" mark={m.epf} hint="Usually 12% of basic, or ₹1,800 if PF is capped at the ₹15,000 wage limit.">
-        <Money value={s.epf} onChange={(v) => set({ epf: v })} ariaLabel="Employee PF per month" />
+      <Field label="Your PF contribution" mark={m.epf} hint={epfHint(s, rules)}>
+        <Segmented<EpfMode>
+          ariaLabel="How PF is worked out"
+          value={s.epfMode}
+          onChange={(v) => set({ epfMode: v, epf: v === 'fixed' && !s.epf ? Math.round(epfFor(s, props.month ?? '', rules)) : s.epf })}
+          options={[
+            { value: 'statutory', label: 'As per law' },
+            { value: 'fullBasic', label: '12% of basic' },
+            { value: 'fixed', label: 'Fixed' },
+          ]}
+        />
+        {s.epfMode === 'fixed' && <Money value={s.epf} onChange={(v) => set({ epf: v })} ariaLabel="Employee PF per month" />}
       </Field>
       <Field label="Professional tax (per month)" mark={m.pt} hint="₹200 in most states (Karnataka, Maharashtra, Telangana…). ₹0 in Delhi, Haryana, UP.">
         <Money value={s.pt} onChange={(v) => set({ pt: v })} ariaLabel="Professional tax per month" />
       </Field>
-      <Field label="Employer NPS (% of basic)" mark={m.nps} hint={`Saves tax under 80CCD(2), up to ${Math.round(NEW_REGIME.npsCapPctOfBasic * 100)}% of basic.`}>
+      <Field label="Employer NPS (% of basic)" mark={m.nps} hint={`Saves tax under 80CCD(2), up to ${Math.round(rulesFor(rules, 9999).npsCapPctOfBasic * 100)}% of basic.`}>
         <Percent value={s.npsPct} onChange={(v) => set({ npsPct: v })} ariaLabel="Employer NPS percent of basic" />
       </Field>
       {s.npsPct > 0 && (
@@ -176,4 +190,18 @@ export function OfferExtras(props: { emp: Employment; onChange: (e: Employment) 
       )}
     </div>
   );
+}
+
+/** "12% of basic up to ₹15,000 (₹1,800) until Aug 26, then up to ₹25,000 (₹3,000)". */
+function epfHint(s: Structure, rules: ReturnType<typeof useRules>) {
+  if (s.epfMode === 'fullBasic') return `₹${Math.round(rules.epf.rate * s.basic).toLocaleString('en-IN')} a month, 12% of full basic with no cap.`;
+  if (s.epfMode === 'fixed') return 'The amount on your payslip.';
+  const steps = [...rules.epf.wageCeiling].sort((a, b) => a.from.localeCompare(b.from)).slice(-2);
+  const txt = steps
+    .map((w) => {
+      const amt = Math.round(rules.epf.rate * Math.min(s.basic, w.amount));
+      return `₹${amt.toLocaleString('en-IN')} from ${monthName(w.from.slice(0, 7))} (wage ceiling ₹${w.amount.toLocaleString('en-IN')})`;
+    })
+    .join(', ');
+  return `12% of basic, capped at the EPF wage ceiling: ${txt}.`;
 }

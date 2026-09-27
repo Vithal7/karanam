@@ -2,33 +2,64 @@ import { useRef, useState } from 'preact/hooks';
 import { parseText, type Extracted } from '../extract/parse';
 import { ACCEPT, fileToText } from '../extract/text';
 
-/** File picker + drop zone that turns a letter into extracted components. */
-export function Uploader(props: { onExtracted: (x: Extracted, fileName: string) => void; onManual: () => void; manualLabel?: string }) {
-  const input = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<{ status: string; p: number } | null>(null);
-  const [error, setError] = useState('');
-  const [drag, setDrag] = useState(false);
+export interface ReadFile {
+  name: string;
+  x: Extracted;
+}
 
-  async function handle(file: File | undefined) {
-    if (!file) return;
-    setError('');
-    setBusy({ status: 'Opening file', p: 0 });
-    try {
-      const { text } = await fileToText(file, (status, p) => setBusy({ status: humanStatus(status), p }));
-      const x = parseText(text);
-      props.onExtracted(x, file.name);
-    } catch (e) {
-      console.error(e);
-      setError(e instanceof Error ? e.message : 'Could not read that file.');
-    } finally {
-      setBusy(null);
+/** File picker + drop zone. Reads one or more files on the device, then hands back what it found. */
+export function Uploader(props: {
+  onFiles: (files: ReadFile[]) => void;
+  onManual?: () => void;
+  manualLabel?: string;
+  compact?: boolean;
+  buttonLabel?: string;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<{ status: string; p: number; file: string; i: number; n: number } | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [drag, setDrag] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState('');
+
+  function readPasted() {
+    const x = parseText(pasted);
+    if (!Object.keys(x.components).length && !x.doj) {
+      setErrors(["Couldn't find any salary figures in that text. Check you copied the salary table, or type the numbers in."]);
+      return;
     }
+    setErrors([]);
+    setPasting(false);
+    setPasted('');
+    props.onFiles([{ name: 'Pasted text', x }]);
+  }
+
+  async function handle(list: FileList | null | undefined) {
+    const files = list ? Array.from(list) : [];
+    if (!files.length) return;
+    setErrors([]);
+    const read: ReadFile[] = [];
+    const errs: string[] = [];
+    for (const [i, file] of files.entries()) {
+      setBusy({ status: 'Opening', p: 0, file: file.name, i: i + 1, n: files.length });
+      try {
+        const { text } = await fileToText(file, (status, p) => setBusy({ status: humanStatus(status), p, file: file.name, i: i + 1, n: files.length }));
+        read.push({ name: file.name, x: parseText(text) });
+      } catch (e) {
+        console.error(e);
+        errs.push(`${file.name}: ${e instanceof Error ? e.message : 'could not read this file.'}`);
+      }
+    }
+    setBusy(null);
+    setErrors(errs);
+    if (input.current) input.current.value = '';
+    if (read.length) props.onFiles(read);
   }
 
   return (
     <div>
       <div
-        class={`drop ${drag ? 'drag' : ''}`}
+        class={`drop ${drag ? 'drag' : ''} ${props.compact ? 'compact' : ''}`}
         onDragOver={(e) => {
           e.preventDefault();
           setDrag(true);
@@ -37,13 +68,17 @@ export function Uploader(props: { onExtracted: (x: Extracted, fileName: string) 
         onDrop={(e) => {
           e.preventDefault();
           setDrag(false);
-          handle(e.dataTransfer?.files[0]);
+          handle(e.dataTransfer?.files);
         }}
       >
         {busy ? (
           <div class="progress" role="status" aria-live="polite">
             <div class="spinner" aria-hidden="true" />
-            <p>{busy.status}…</p>
+            <p>
+              {busy.n > 1 && `File ${busy.i} of ${busy.n}: `}
+              {busy.status}…
+            </p>
+            <p class="muted small">{busy.file}</p>
             {busy.p > 0 && busy.p < 1 && (
               <div class="bar" aria-hidden="true">
                 <span style={{ width: `${Math.round(busy.p * 100)}%` }} />
@@ -52,21 +87,59 @@ export function Uploader(props: { onExtracted: (x: Extracted, fileName: string) 
           </div>
         ) : (
           <>
-            <svg class="drop-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-            <button type="button" class="btn primary" onClick={() => input.current?.click()}>
-              Choose file or take photo
-            </button>
-            <p class="muted small">PDF, Word (.docx) or a photo. Read on your device, never uploaded.</p>
+            {!props.compact && (
+              <svg class="drop-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            )}
+            {/* A real label around the input: phones and in-app browsers often ignore input.click(). */}
+            <label class={`btn file-btn ${props.compact ? '' : 'primary'}`}>
+              {props.buttonLabel ?? 'Choose files or take a photo'}
+              <input ref={input} class="visually-hidden" type="file" accept={ACCEPT} multiple onChange={(e) => handle((e.target as HTMLInputElement).files)} />
+            </label>
+            {!props.compact && <p class="muted small">Offer letter, revision letters or payslips. PDF, Word or photos. You can pick several at once. They're read on your device and never uploaded.</p>}
           </>
         )}
-        <input ref={input} type="file" accept={ACCEPT} hidden onChange={(e) => handle((e.target as HTMLInputElement).files?.[0])} />
       </div>
-      {error && <div class="callout err">{error}</div>}
-      <button type="button" class="btn link" onClick={props.onManual} disabled={!!busy}>
-        {props.manualLabel ?? 'No letter handy? Type the numbers in'}
-      </button>
+      {errors.length > 0 && (
+        <div class="callout err">
+          {errors.map((e) => (
+            <p>{e}</p>
+          ))}
+        </div>
+      )}
+      {pasting ? (
+        <div class="paste">
+          <label class="field-label" for="paste-text">
+            Paste the text of your letter or payslip
+          </label>
+          <textarea
+            id="paste-text"
+            class="text"
+            rows={8}
+            placeholder={'Open the letter, select all, copy, and paste it here.\ne.g. Basic Salary  1,42,500  17,10,000'}
+            value={pasted}
+            onInput={(e) => setPasted((e.target as HTMLTextAreaElement).value)}
+          />
+          <div class="paste-actions">
+            <button type="button" class="btn primary" disabled={!pasted.trim()} onClick={readPasted}>
+              Read this text
+            </button>
+            <button type="button" class="btn ghost" onClick={() => setPasting(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" class="btn link" onClick={() => setPasting(true)} disabled={!!busy}>
+          Can't pick a file? Paste the letter's text instead
+        </button>
+      )}
+      {props.onManual && (
+        <button type="button" class="btn link" onClick={props.onManual} disabled={!!busy}>
+          {props.manualLabel ?? 'No letter handy? Type the numbers in'}
+        </button>
+      )}
     </div>
   );
 }

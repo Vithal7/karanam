@@ -34,7 +34,12 @@ export function docFromExtract(x: Extracted, id: string, name: string): DocRecor
   put('hra', c.hra?.monthly);
   put('special', c.special?.monthly);
   for (const k of ['lta', 'conveyance', 'otherAllowance'] as const) if (c[k]) put(`other:${c[k]!.label}`, c[k]!.monthly);
+  for (const a of x.allowances ?? []) put(`other:${a.label}`, a.monthly);
   put('epf', (c.employeePf ?? c.employerPf)?.monthly);
+  // Parts of CTC that never reach the payslip, for the "does it add up?" check.
+  put('employerPf', c.employerPf?.monthly);
+  put('gratuity', c.gratuity?.monthly);
+  put('insurance', c.insurance?.monthly);
   put('pt', c.pt?.monthly);
   if (c.nps) put('nps', c.nps.pct && c.basic ? c.nps.pct * c.basic.monthly : c.nps.monthly);
   put('ctc', c.ctc?.annual);
@@ -77,6 +82,9 @@ export function orderDocs(docs: DocRecord[]) {
  * Files that describe the starting salary: offer letters, and payslips from before the first
  * appraisal. Later payslips and appraisal letters become dated hikes instead (see events.ts).
  */
+/** Fields that describe CTC, not pay: read for the reconciliation, never merged as salary. */
+const CTC_ONLY = new Set(['employerPf', 'gratuity', 'insurance']);
+
 export function baseDocs(docs: DocRecord[]): DocRecord[] {
   const hikes = docs.filter((d) => d.kind === 'appraisal').map((d) => (d.facts?.effectiveFrom ?? d.docDate ?? '').slice(0, 7)).filter(Boolean).sort();
   const first = hikes[0];
@@ -85,7 +93,7 @@ export function baseDocs(docs: DocRecord[]): DocRecord[] {
 
 export function mergeDocs(docs: DocRecord[]) {
   const ordered = orderDocs(docs);
-  const fields = [...new Set(ordered.flatMap((d) => Object.keys(d.fields)))].filter((f) => f !== 'joiningOffset');
+  const fields = [...new Set(ordered.flatMap((d) => Object.keys(d.fields)))].filter((f) => f !== 'joiningOffset' && !CTC_ONLY.has(f));
   const agreed: Record<string, ConflictOption> = {};
   const conflicts: Conflict[] = [];
   for (const f of fields) {
@@ -200,6 +208,13 @@ export function applyDocs(
     }
   }
   if (base.ctc) out.ctc = base.ctc;
+  // CTC-only parts: newest file that lists each.
+  const ctcParts: NonNullable<Employment['ctcParts']> = { ...(emp.ctcParts ?? {}) };
+  for (const k of ['employerPf', 'gratuity', 'insurance'] as const) {
+    const d = [...docs].reverse().find((x) => x.fields[k] !== undefined);
+    if (d) ctcParts[k] = d.fields[k];
+  }
+  out.ctcParts = ctcParts;
   if (base.joining) {
     const month = addMonths(monthOf(out.start), docs.find((d) => d.fields.joiningOffset !== undefined)?.fields.joiningOffset ?? 0);
     const rest = out.oneTimes.filter((o) => o.kind !== 'joining');
@@ -226,6 +241,9 @@ export function applyDocs(
 export function epfModeFor(epf: number, basic: number, month: string, rules: Rules): { mode: EpfMode; amount: number } {
   const statutory = rules.epf.rate * Math.min(basic, epfCeiling(rules, month));
   if (basic && Math.abs(epf - statutory) < 2) return { mode: 'statutory', amount: epf };
+  // ₹1,800 (12% of ₹15,000) is the legal cap under any ceiling, even in a letter dated after a change:
+  // treat it as "as per law" so it follows the ceiling (₹3,000 from Sep 2026).
+  if (basic && rules.epf.wageCeiling.some((w) => basic >= w.amount && Math.abs(epf - rules.epf.rate * w.amount) < 2)) return { mode: 'statutory', amount: epf };
   if (basic && Math.abs(epf - rules.epf.rate * basic) < 2) return { mode: 'fullBasic', amount: epf };
   return { mode: 'fixed', amount: epf };
 }

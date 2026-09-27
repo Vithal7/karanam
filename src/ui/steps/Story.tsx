@@ -6,6 +6,10 @@ import type { DocRecord, Facts, Scenario } from '../../domain/types';
 import { CompanyCards } from '../CompanyCards';
 import { DOC_KIND_SHORT } from '../docKinds';
 import { Continue } from '../Continue';
+import { reconcile } from '../../domain/reconcile';
+import { rs } from '../../format';
+import { useRules } from '../rulesContext';
+import { ExitQuestion } from '../ExitQuestion';
 import { Money, Percent } from '../controls';
 import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
@@ -58,10 +62,13 @@ export function StoryStep(props: {
   onRemove: (id: string) => void;
   onAddJob: () => void;
   onAnswerHike: (jobId: string, docId: string, f: Partial<Facts>) => void;
+  onChangeJob: (e: import('../../domain/types').Employment) => void;
   onNext: () => void;
 }) {
   const { s, r } = props;
+  const rules = useRules();
   const errors = validateEmployers(s);
+  const unconfirmed = s.employers.slice(0, -1).filter((e) => !e.totalsOnly && e.endSource !== 'doc' && e.endSource !== 'user');
   const n = s.employers.length;
   return (
     <>
@@ -102,9 +109,21 @@ export function StoryStep(props: {
             const e = s.employers[k];
             return (
               <>
+                {k < n - 1 && !e.totalsOnly && e.endSource !== 'doc' && e.endSource !== 'user' && (
+                  <ExitQuestion emp={e} next={s.employers[k + 1]} fy={s.fy} thirty={s.settings.thirtyDayMonth} onConfirm={props.onChangeJob} />
+                )}
                 {(props.needs[e.id] ?? []).map((need) => (
                   <HikeQuestion need={need} onAnswer={(f) => props.onAnswerHike(e.id, need.docId, f)} />
                 ))}
+                {(() => {
+                  const rc = reconcile(e, e.structure, e.start > `${s.fy}-04-01` ? e.start.slice(0, 7) : `${s.fy}-04`, rules);
+                  return rc && !rc.ok ? (
+                    <p class="callout warn small">
+                      The salary breakup {rc.gap > 0 ? `is ${rs(rc.gap)} a month short of` : `is ${rs(-rc.gap)} a month more than`} what the CTC implies. Open "Check the
+                      numbers" to fix it.
+                    </p>
+                  ) : null;
+                })()}
                 {(props.notes[e.id] ?? []).map((t) => (
                   <p class="callout warn small">{t}</p>
                 ))}
@@ -150,7 +169,18 @@ export function StoryStep(props: {
           ))}
         </div>
       )}
-      <Continue label="Continue" disabled={errors.length > 0 || props.inbox.length > 0} why={props.inbox.length ? 'Tell us which job each file is for.' : 'Fix the dates above first.'} onClick={props.onNext} />
+      <Continue
+        label="Continue"
+        disabled={errors.length > 0 || props.inbox.length > 0 || unconfirmed.length > 0}
+        why={
+          props.inbox.length
+            ? 'Tell us which job each file is for.'
+            : unconfirmed.length
+              ? `Confirm when you leave ${unconfirmed.map((e) => e.name).join(' and ')}.`
+              : 'Fix the dates above first.'
+        }
+        onClick={props.onNext}
+      />
     </>
   );
 }

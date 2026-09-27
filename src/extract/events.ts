@@ -4,7 +4,7 @@
  * exit, and new-offer terms set the buyout and joining-bonus clawback.
  */
 import { addMonths, monthLong, monthOf } from '../domain/fy';
-import { fixedMonthly } from '../domain/schedule';
+import { fixedMonthly, noticeShortfall } from '../domain/schedule';
 import type { Employment, FnF, Revision, Structure } from '../domain/types';
 import { epfCeiling, type Rules } from '../rules';
 import { orderDocs } from './merge';
@@ -111,13 +111,20 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
     );
   }
 
+  // --- Notice period: appointment letter, or the resignation acceptance ---
+  const notice = docs.map((d) => d.facts?.noticeDays).filter((x): x is number => !!x).pop();
+  if (notice && !out.noticeDays) out.noticeDays = notice;
+
   // --- Exit: resignation letter, then F&F slip (the slip's amounts win) ---
   const exits = docs.filter((d) => d.kind === 'resignation' || d.kind === 'fnf');
   if (exits.length) {
     const fnf: FnF = { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0, ...(out.fnf ?? {}) };
     for (const d of exits.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'fnf' ? 1 : -1))) {
       const f = d.facts ?? {};
-      if (f.lastWorkingDay) out.end = f.lastWorkingDay;
+      if (f.lastWorkingDay) {
+        out.end = f.lastWorkingDay;
+        out.endSource = 'doc';
+      }
       if (f.resignationDate) out.resignedOn = f.resignationDate;
       else if (d.kind === 'resignation' && d.docDate && !out.resignedOn) out.resignedOn = d.docDate;
       if (f.shortfallDays !== undefined) fnf.noticeDaysRecovered = f.shortfallDays;
@@ -129,6 +136,9 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
       if (f.gratuity !== undefined) fnf.gratuity = f.gratuity;
       if (f.fnfPayMonth) fnf.payMonth = f.fnfPayMonth;
     }
+    // No shortfall stated: work it out from the notice period and your dates.
+    const computed = noticeShortfall(out);
+    if (!fnf.noticeDaysRecovered && fnf.noticeAmount === undefined && computed) fnf.noticeDaysRecovered = computed;
     out.fnf = fnf;
   }
 

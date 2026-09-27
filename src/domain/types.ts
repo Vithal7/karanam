@@ -186,6 +186,12 @@ export interface Employment {
   variable?: VariablePay;
   /** Annual CTC as stated in the letter, used only for the comparison view. */
   ctc: number;
+  /** Monthly parts of CTC that never reach the payslip, when the letter lists them. */
+  ctcParts?: { employerPf?: number; gratuity?: number; insurance?: number };
+  /** Notice period in days (from the appointment letter, or entered). */
+  noticeDays?: number;
+  /** Where the last working day came from: a resignation/F&F paper, you, or an assumption. */
+  endSource?: 'doc' | 'user' | 'assumed';
   /**
    * TDS actually deducted, month-by-month ("YYYY-MM" -> amount). Months not listed are
    * projected the way payroll would.

@@ -1,6 +1,6 @@
 import { fnfItems } from '../domain/compute';
 import { fyStart, maxDate, monthLong, monthOf } from '../domain/fy';
-import { arrearsFor, fixedMonthly } from '../domain/schedule';
+import { arrearsFor, fixedMonthly, noticeShortfall } from '../domain/schedule';
 import type { Buyout, Employment, FnF, Form12B, LeaveBasis, OneTime, Revision } from '../domain/types';
 import { rs } from '../format';
 import { Choices, DateInput, Field, Money, MonthInput, Num, Percent, Segmented, Toggle } from './controls';
@@ -76,17 +76,19 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
   const f: FnF = e.fnf ?? { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 };
   const setF = (patch: Partial<FnF>) => props.onChange({ ...e, fnf: { ...f, ...patch } });
   const items = fnfItems({ ...e, fnf: f }, props.fy, props.thirty);
+  const shortfall = noticeShortfall(e);
   return (
     <div class="card">
       <h3>Leaving {e.name || 'this job'}</h3>
       <div class="grid2">
         <Field label="Resigned on">
-          <DateInput value={e.resignedOn ?? ''} onChange={(v) => props.onChange({ ...e, resignedOn: v })} ariaLabel="Resigned on" />
+          <DateInput value={e.resignedOn ?? ''} onChange={(v) => props.onChange({ ...e, resignedOn: v, endSource: 'user' })} ariaLabel="Resigned on" />
         </Field>
         <Field label="Last working day">
-          <DateInput value={e.end} onChange={(v) => props.onChange({ ...e, end: v })} ariaLabel="Last working day" />
+          <DateInput value={e.end} onChange={(v) => props.onChange({ ...e, end: v, endSource: 'user' })} ariaLabel="Last working day" />
         </Field>
       </div>
+      {e.endSource === 'assumed' && <p class="callout warn small">This last day is an assumption (the day before your next job). Enter your real dates.</p>}
       {items && items.lastMonthFactor > 0 && items.lastMonthFactor < 1 && (
         <p class="note">
           {monthLong(items.lastMonth)} salary is paid pro-rata: {Math.round(items.lastMonthFactor * 100)}% of the month.
@@ -115,6 +117,17 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
       )}
 
       <h3 class="mt">Notice period</h3>
+      <Field label="Notice period" hint={e.docs.some((d) => d.facts?.noticeDays) ? 'From your appointment letter.' : 'From your appointment letter or HR policy.'}>
+        <Num value={e.noticeDays ?? 0} onChange={(v) => props.onChange({ ...e, noticeDays: v || undefined })} suffix="days" ariaLabel="Notice period in days" />
+      </Field>
+      {shortfall !== undefined && shortfall !== f.noticeDaysRecovered && (
+        <p class="note">
+          Resigning on {e.resignedOn} with a last day of {e.end}, you're {shortfall} days short.{' '}
+          <button type="button" class="btn link inline" onClick={() => setF({ noticeDaysRecovered: shortfall })}>
+            Use {shortfall} days
+          </button>
+        </p>
+      )}
       <div class="grid2">
         <Field label="Shortfall recovered" hint="Notice days you won't serve.">
           <Num value={f.noticeDaysRecovered} onChange={(v) => setF({ noticeDaysRecovered: v })} suffix="days" ariaLabel="Notice days recovered" />

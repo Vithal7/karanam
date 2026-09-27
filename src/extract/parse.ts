@@ -40,6 +40,8 @@ export interface Found {
 export interface Extracted {
   kind: 'offer' | 'payslip';
   components: Partial<Record<ComponentKey, Found>>;
+  /** Every fixed allowance row beyond Basic, HRA and the first special allowance, by its own name. */
+  allowances: { label: string; monthly: number }[];
   doj?: { date: string; confidence: Confidence };
   employer?: string;
   /** Letter date, or the first day of the payslip's month (YYYY-MM-DD). */
@@ -69,8 +71,8 @@ const LABELS: [ComponentKey, RegExp][] = [
   ['hra', /\bhra\b|house\s+rent/i],
   ['lta', /\blta\b|leave\s+travel/i],
   ['conveyance', /conveyance|transport\s+allowance/i],
-  ['special', /special|flexi(ble)?\s+(benefit|allowance|pay)|\bflexi\b|misc(ellaneous)?\.?\s+allowance|personal\s+allowance|supplementary\s+allowance|balance\s+allowance|cash\s+allowance/i],
-  ['otherAllowance', /other\s+allowance|allowance/i],
+  ['special', /special\s+(allowance|pay)|\bspecial\b|flexi(ble)?\s+(benefit|allowance|pay|component)|\bflexi\b|misc(ellaneous)?\.?\s*allowance|\bmisc(ellaneous)?\b|fixed\s+allowance|personal\s+allowance|supplementary\s+allowance|balance\s+allowance|cash\s+allowance|ad[\s-]?hoc\s+allowance|management\s+allowance|consolidated\s+allowance/i],
+  ['otherAllowance', /dearness\s+allowance|\bd\.?a\.?\b(?=\s*[:\d₹r])|other\s+allowance|allowance/i],
 ];
 
 const NICE: Record<ComponentKey, string> = {
@@ -263,9 +265,14 @@ export function parseText(text: string): Extracted {
   }
   if (ctc) components.ctc = { key: 'ctc', label: NICE.ctc, monthly: ctc / 12, annual: ctc, confidence: 'found' };
 
-  for (let i = 0; i < lines.length; i++) for (const seg of segments(lines[i])) {
+  const allowances: { label: string; monthly: number }[] = [];
+  const ALLOWANCE_KEYS: ComponentKey[] = ['special', 'otherAllowance', 'lta', 'conveyance'];
+  for (let i = 0; i < lines.length; i++) for (const [si, seg] of segments(lines[i]).entries()) {
     const { key, text: line } = seg;
-    if (key === 'ctc' || components[key]) continue;
+    // The row's own name starts at the line start for the first label ("Suzlon Allowance").
+    const rowName = rowLabel(si === 0 ? lines[i] : line);
+    // Several allowance rows are common ("Miscellaneous", "Dearness", "Suzlon Allowance"): keep them all.
+    if (key === 'ctc' || (components[key] && !ALLOWANCE_KEYS.includes(key))) continue;
     if (isTotalText(line)) continue;
     let nums = numbersIn(line);
     // Tables sometimes break the label and its figures onto separate lines.
@@ -322,6 +329,16 @@ export function parseText(text: string): Extracted {
       continue;
     } else continue;
 
+    if (ALLOWANCE_KEYS.includes(key)) {
+      const label = rowName || NICE[key];
+      if (components[key] || (key !== 'special' && key !== 'lta' && key !== 'conveyance')) {
+        if (!allowances.some((a) => a.label.toLowerCase() === label.toLowerCase())) allowances.push({ label, monthly: monthly! });
+        if (components[key]) continue;
+        if (key === 'otherAllowance') continue;
+      }
+      components[key] = { key, label: key === 'special' ? label : NICE[key], monthly: monthly!, annual: annual!, confidence, pct };
+      continue;
+    }
     components[key] = { key, label: NICE[key], monthly: monthly!, annual: annual!, confidence, pct, monthOffset: monthOffsetIn(lines[i]) };
   }
 
@@ -348,7 +365,7 @@ export function parseText(text: string): Extracted {
   // Sanity check against CTC.
   if (ctc) {
     const keys: ComponentKey[] = ['basic', 'hra', 'special', 'lta', 'conveyance', 'otherAllowance', 'employerPf', 'gratuity', 'nps', 'insurance', 'variable'];
-    const sum = keys.reduce((a, k) => a + (components[k]?.annual || 0), 0);
+    const sum = keys.reduce((a, k) => a + (components[k]?.annual || 0), 0) + allowances.reduce((a, x) => a + x.monthly * 12, 0);
     if (sum > 0 && Math.abs(sum - ctc) / ctc > 0.1)
       warnings.push(
         `Components add up to ₹${Math.round(sum).toLocaleString('en-IN')} but the letter's CTC is ₹${Math.round(ctc).toLocaleString('en-IN')}. Please double-check the figures.`,
@@ -357,7 +374,9 @@ export function parseText(text: string): Extracted {
   if (!components.basic) warnings.push('Could not find Basic salary. Please enter it.');
   if (kind === 'offer' && !doj) warnings.push('Could not find the date of joining. Please enter it.');
 
-  return { kind, components, doj, employer, docDate: findDocDate(lines, kind), ytdTds: findYtdTds(lines, text), warnings };
+  // Don't count allowances already captured under their own key.
+  const own = allowances.filter((a) => !Object.values(components).some((c) => c && c.label === a.label && ALLOWANCE_KEYS.includes(c.key)));
+  return { kind, components, allowances: own, doj, employer, docDate: findDocDate(lines, kind), ytdTds: findYtdTds(lines, text), warnings };
 }
 
 /** The payslip month ("Payslip for the month of August 2026", "Pay period: Aug-2026") or the letter's date. */
@@ -445,4 +464,16 @@ export function findEmployer(text: string): string | undefined {
   let best: { name: string; score: number } | undefined;
   for (const c of cands.values()) if (!best || c.score > best.score) best = c;
   return best?.name;
+}
+
+/** "Suzlon Allowance (Monthly) : 12,500" -> "Suzlon Allowance". */
+export function rowLabel(segment: string): string {
+  const head = segment.split(/[\d₹]|\brs\.?\s|\binr\b/i)[0];
+  return head
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/[:\-–|]+\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\d+[.)]\s*/, '')
+    .slice(0, 40);
 }

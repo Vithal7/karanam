@@ -143,8 +143,7 @@ export function extractFacts(text: string, kind: DocKind): Facts {
       60,
     );
     f.resignationDate = dateAfter(flat, /resignation\s+(dated|submitted\s+on|received\s+on|on|date)|date\s+of\s+resignation|resigned\s+on/, 40);
-    const np = /notice\s+period\s+(of\s+|is\s+)?(\d{1,3})\s*(days?|months?)/i.exec(flat);
-    if (np) f.noticeDays = /month/i.test(np[3]) ? +np[2] * 30 : +np[2];
+    f.noticeDays = findNoticeDays(flat);
     f.shortfallDays =
       numberBefore(flat, /(?:shortfall|short\s*fall|unserved|not\s+served|buy\s*-?\s*out|recovery)\D{0,40}?(\d{1,3})\s*days/) ??
       numberBefore(flat, /(\d{1,3})\s*days\s*(?:of\s+)?(?:notice\s+)?(?:shortfall|short\s*fall|unserved|buy\s*-?\s*out|notice\s+recovery)/);
@@ -166,16 +165,10 @@ export function extractFacts(text: string, kind: DocKind): Facts {
     f.penalty = moneyAfter(flat, /(penalty|liquidated\s+damages|bond\s+(amount|recovery)|breach\s+of\s+contract)/, 60);
   }
 
-  if (kind === 'taxsheet') {
-    f.tdsToDate = moneyAfter(
-      flat,
-      /(income\s+tax|tax|tds)\s+(already\s+)?(deducted|paid|recovered)\s*(till|to|up\s*to|so\s*far|until|upto)?\s*(date|now)?\s*(:|-)?/,
-      60,
-      100,
-    );
-  }
+  if (kind === 'taxsheet') f.tdsToDate = findTdsToDate(flat);
 
   if (kind === 'offer') {
+    f.noticeDays = findNoticeDays(flat);
     const bo = /notice\s*(period\s*)?buy\s*-?\s*out|buy\s*-?\s*out\s+(of\s+)?(your\s+)?notice|reimburse\w*\s+(the\s+)?notice/i.exec(flat);
     if (bo) {
       const around = flat.slice(bo.index, bo.index + 260);
@@ -213,4 +206,45 @@ export function companyFromEmail(text: string): string | undefined {
   const d = m[1].toLowerCase();
   if (/^(gmail|yahoo|outlook|hotmail|live|icloud|proton(mail)?|rediffmail|me)$/.test(d)) return undefined;
   return d.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const NUM_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, six: 6, thirty: 30, sixty: 60, ninety: 90 };
+
+/** "notice period of 90 days", "three months' notice", "60 days notice", "notice period: 2 months". */
+export function findNoticeDays(text: string): number | undefined {
+  const n = '(\\d{1,3}|one|two|three|four|six|thirty|sixty|ninety)';
+  const res = [
+    new RegExp(`notice\\s+period\\s*(of|is|:|shall\\s+be|will\\s+be)?\\s*${n}\\s*(\\(\\w+\\)\\s*)?(calendar\\s+)?(days?|months?)`, 'i'),
+    new RegExp(`${n}\\s*(\\(\\w+\\)\\s*)?(calendar\\s+)?(days?|months?)[’'\`s]*\\s+(written\\s+)?(prior\\s+)?notice`, 'i'),
+    new RegExp(`notice\\s+of\\s+${n}\\s*(\\(\\w+\\)\\s*)?(calendar\\s+)?(days?|months?)`, 'i'),
+  ];
+  for (const re of res) {
+    const m = re.exec(text);
+    if (!m) continue;
+    const num = m.slice(1).find((x) => x && /^(\d{1,3}|one|two|three|four|six|thirty|sixty|ninety)$/i.test(x))!;
+    const unit = m.slice(1).find((x) => x && /^(days?|months?)$/i.test(x))!;
+    const v = NUM_WORDS[num.toLowerCase()] ?? parseInt(num, 10);
+    const days = /month/i.test(unit) ? v * 30 : v;
+    if (days > 0 && days <= 180) return days;
+  }
+  return undefined;
+}
+
+/** Tax already deducted this year on a tax computation sheet, however the sheet phrases it. */
+export function findTdsToDate(text: string): number | undefined {
+  const direct = moneyAfter(
+    text,
+    /(income\s+tax|tax|tds)\s+(already\s+)?(deducted|paid|recovered|collected)\s*(till|to|up\s*to|so\s*far|until|upto|in\s+previous\s+months|till\s+last\s+month)?\s*(date|now)?\s*(\(ytd\))?\s*(:|-)?/,
+    60,
+    100,
+  );
+  if (direct !== undefined) return direct;
+  // Table rows: a line naming tax/TDS as deducted/recovered/paid; the rightmost figure is the total.
+  for (const line of text.split('\n')) {
+    if (!/\b(tax|tds)\b/i.test(line) || !/(deducted|recovered|paid|ytd|till\s+date|to\s+date)/i.test(line)) continue;
+    if (/payable|balance|remaining|per\s+month|projected|to\s+be\s+deducted|net\s+tax/i.test(line)) continue;
+    const nums = numbersIn(line).filter((x) => !x.pct);
+    if (nums.length) return nums[nums.length - 1].value;
+  }
+  return undefined;
 }

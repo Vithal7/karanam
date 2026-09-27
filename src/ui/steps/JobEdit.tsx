@@ -8,6 +8,7 @@ import { Continue } from '../Continue';
 import { DocsPanel } from '../Docs';
 import { OneTimeEditor, StructureEditor } from '../Editors';
 import { ExitEditor, HikesEditor, JoiningEditor, VariableEditor } from '../JobSections';
+import { ReconcileCard } from '../Reconcile';
 import type { ReadFile } from '../Uploader';
 
 /** Everything about one job: its files, salary and hikes, and how you joined or left it. */
@@ -102,6 +103,12 @@ export function JobEditStep(props: {
               <Money value={e.ctc} onChange={(v) => set({ ctc: v })} ariaLabel="CTC per year" />
             </Field>
           </div>
+          <ReconcileCard
+            emp={e}
+            structure={e.structure}
+            month={monthOf(maxDate(e.start || fyStart(s.fy), fyStart(s.fy)))}
+            onAddAllowance={(m) => set({ structure: { ...e.structure, others: [...e.structure.others, { name: 'Other allowance', amount: m }] } })}
+          />
           <HikesEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} today={s.today} />
 
           {(isNew || index > 0) && (

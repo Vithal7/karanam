@@ -135,3 +135,10 @@ export function finishLine(l: MonthLine) {
 }
 
 export const endMonthOf = (emp: Employment, fy: number) => monthOf(window(emp, fy)?.end ?? fyEnd(fy));
+
+/** Notice days not served: notice period minus days between resignation and last working day. */
+export function noticeShortfall(emp: Employment): number | undefined {
+  if (!emp.noticeDays || !emp.resignedOn || !emp.end) return undefined;
+  const served = daysBetween(emp.resignedOn, emp.end) - 1;
+  return Math.max(0, emp.noticeDays - served);
+}

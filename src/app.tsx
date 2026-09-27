@@ -61,7 +61,10 @@ function rebuild(x: AppState, ids: Iterable<string>, rules: Rules): AppState {
     const next = employers[k + 1];
     if (!next) return e;
     const out = { ...e };
-    if (!out.end && !out.totalsOnly && next.start) out.end = dayBefore(next.start);
+    if ((!out.end || out.endSource === 'assumed') && !out.totalsOnly && next.start) {
+      out.end = dayBefore(next.start);
+      out.endSource = 'assumed';
+    }
     if (!out.fnf && !out.totalsOnly) out.fnf = { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 };
     return out;
   });
@@ -263,6 +266,7 @@ export function App() {
               notes={st.notes}
               needs={st.needs}
               onAnswerHike={answerHike}
+              onChangeJob={setJob}
               inbox={st.inbox}
               onAssign={assign}
               onDiscard={(id) => update({ inbox: st.inbox.filter((d) => d.id !== id) })}

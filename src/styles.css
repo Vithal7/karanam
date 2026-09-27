@@ -1462,3 +1462,34 @@ ol.tline::before {
   margin-left: 2px;
   vertical-align: middle;
 }
+
+.card.reconcile.off {
+  border-color: var(--warn);
+}
+.card.reconcile.ok h3 {
+  color: var(--good);
+}
+.exit-q {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--text);
+  background: var(--accent-soft);
+}
+.exit-q .choices {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.exit-q .choice {
+  flex: 1 1 140px;
+  min-height: 44px;
+}
+select.kind-select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.8rem;
+  padding: 4px 6px;
+  max-width: 45%;
+}

@@ -4,18 +4,12 @@ import { fyLabel, monthLong } from '../../domain/fy';
 import type { TimelineEvent } from '../../domain/story';
 import type { DocRecord, Facts, Scenario } from '../../domain/types';
 import { CompanyCards } from '../CompanyCards';
+import { DOC_KIND_SHORT } from '../docKinds';
 import { Continue } from '../Continue';
 import { Money, Percent } from '../controls';
 import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
 
-const KIND: Record<DocRecord['kind'], string> = {
-  offer: 'Offer letter',
-  appraisal: 'Appraisal letter',
-  payslip: 'Payslip',
-  resignation: 'Resignation',
-  fnf: 'F&F slip',
-};
 
 export interface HikeNeed {
   docId: string;
@@ -78,7 +72,7 @@ export function StoryStep(props: {
           <h3>Which job are these files for?</h3>
           {props.inbox.map((d) => (
             <div class="inbox-row">
-              <span class="file-kind">{KIND[d.kind]}</span>
+              <span class="file-kind">{DOC_KIND_SHORT[d.kind]}</span>
               <span class="file-name">{d.name}</span>
               <select
                 class="text"

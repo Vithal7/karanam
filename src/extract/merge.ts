@@ -188,7 +188,17 @@ export function applyDocs(
 
   const out: Employment = { ...emp, structure, revisions };
   if (name && (!emp.name || /^(new job|current job|job \d)$/i.test(emp.name))) out.name = name;
-  if (doj) out.start = doj;
+  if (doj) {
+    out.start = doj;
+    out.startSource = 'doc';
+  } else if (emp.startSource !== 'user') {
+    // No joining date in the letters: the appointment letter's own date is the best guess.
+    const letter = ordered.find((d) => d.kind === 'offer' && d.docDate);
+    if (letter) {
+      out.start = letter.docDate!;
+      out.startSource = 'approx';
+    }
+  }
   if (base.ctc) out.ctc = base.ctc;
   if (base.joining) {
     const month = addMonths(monthOf(out.start), docs.find((d) => d.fields.joiningOffset !== undefined)?.fields.joiningOffset ?? 0);

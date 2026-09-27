@@ -10,17 +10,29 @@ import { classifyDoc, companyFromEmail, companyKey, extractFacts } from './facts
 import { docFromExtract } from './merge';
 import { parseText } from './parse';
 
-/** Read one file's text into a document record. */
-export function docFromText(text: string, name: string, id = uid()): DocRecord {
+/** Limits for figures read from a file; anything beyond is a misread, not a salary. */
+const FIELD_MAX: Record<string, number> = { basic: 2_000_000, hra: 1_500_000, special: 2_000_000, epf: 100_000, pt: 2_500, nps: 500_000, ctc: 200_000_000, joining: 50_000_000, variable: 100_000_000, retention: 50_000_000 };
+
+/** Read one file's text into a document record. `kind` overrides the automatic type. */
+export function docFromText(text: string, name: string, id = uid(), kind?: DocRecord['kind']): DocRecord {
   const x = parseText(text);
-  const kind = classifyDoc(text);
+  const k = kind ?? classifyDoc(text);
   const d = docFromExtract(x, id, name);
-  d.kind = kind;
-  d.facts = extractFacts(text, kind);
+  d.kind = k;
+  d.facts = extractFacts(text, k);
   d.employer = x.employer ?? companyFromEmail(text);
-  // Resignation emails and F&F slips mention amounts that aren't salary components.
-  if (kind === 'resignation' || kind === 'fnf') d.fields = {};
-  if (kind !== 'offer') delete d.doj;
+  d.text = text.slice(0, 60_000);
+  // Only offer letters, appraisals and payslips describe a salary breakup. Tax sheets list
+  // annual and projected totals; resignation and F&F papers list settlement amounts.
+  if (k !== 'offer' && k !== 'appraisal' && k !== 'payslip') d.fields = {};
+  for (const [f, v] of Object.entries(d.fields)) {
+    const max = FIELD_MAX[f] ?? (f.startsWith('other:') ? 1_000_000 : Infinity);
+    if (v > max) delete d.fields[f];
+  }
+  if (d.fields.epf && d.fields.basic && d.fields.epf > d.fields.basic) delete d.fields.epf;
+  if (k === 'taxsheet' && d.facts.tdsToDate !== undefined) d.ytdTds = d.facts.tdsToDate;
+  if (k !== 'offer') delete d.doj;
+  if (k === 'other') d.fields = {};
   return d;
 }
 
@@ -47,6 +59,7 @@ export function blankJob(name: string, start: string): Employment {
     tdsKnown: {},
     form12B: 'second',
     docs: [],
+    startSource: 'default',
   };
 }
 
@@ -212,6 +225,7 @@ function siblingName(d: DocRecord, all: DocRecord[]): string | undefined {
 export function jobStart(e: Employment): string {
   const doj = e.docs.filter((d) => d.kind === 'offer' && d.doj).map((d) => d.doj!).sort()[0];
   if (doj) return doj;
+  if (e.startSource === 'user') return e.start;
   if (e.start && !isBlank(e)) return e.start;
   return e.docs.map((d) => d.docDate).filter(Boolean).sort()[0] ?? e.start ?? '';
 }

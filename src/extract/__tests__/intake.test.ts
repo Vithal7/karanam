@@ -239,3 +239,63 @@ Joining Bonus: Rs. 1,50,000 payable with your first salary.`, 'Vithal LinkedIn O
     expect(texts.some((x) => /^Joined LinkedIn/.test(x))).toBe(false);
   });
 });
+
+describe('hard real-world documents', () => {
+  it('reads a tax computation sheet as TDS so far, not a salary breakup', () => {
+    const d = docFromText(`SUZLON GLOBAL SERVICES LIMITED
+Income Tax Computation for the Financial Year 2026-27
+Employee Code: 10234567   PAN: ABCDE1234F   UAN: 100987654321
+Particulars          Actual      Projected     Total
+Basic               4,05,000     5,05,440      9,10,440
+House Rent Allowance 2,02,500    2,52,720      4,55,220
+Gross Salary        8,69,760    10,84,176     19,53,936
+Less: Standard Deduction                       75,000
+Taxable Income                                18,78,936
+Tax on Total Income                            2,31,787
+Tax deducted till date                         1,72,170
+Balance tax payable                              59,617`, 'Suzlon Tax Computation Sep 2026.pdf');
+    expect(d.kind).toBe('taxsheet');
+    expect(d.fields).toEqual({});
+    expect(d.ytdTds).toBe(172170);
+    expect(d.employer).toBe('Suzlon Global Services Limited');
+  });
+
+  it('joins a company name that wraps onto the next line', () => {
+    const d = docFromText(`LinkedIn Technology Information
+Private Limited
+Offer Letter
+Your date of joining will be 2nd November 2026.
+Basic Salary 1,42,500 17,10,000`, 'offer.pdf');
+    expect(d.employer).toBe('LinkedIn Technology Information Private Limited');
+  });
+
+  it('never names a company "Private Limited"', () => {
+    const d = docFromText(`Offer Letter\nPrivate Limited\nYour date of joining will be 2nd November 2026.`, 'offer.pdf');
+    expect(d.employer).toBeUndefined();
+  });
+
+  it('ignores account numbers and IDs as amounts', () => {
+    const d = docFromText(`Offer Letter\nBank Account 50100123456789\nBasic 67,500 8,10,000\nTotal CTC 21,60,000`, 'offer.pdf');
+    expect(d.fields.basic).toBe(67500);
+    expect(d.fields.ctc).toBe(2160000);
+  });
+
+  it('finds a joining date given as "with effect from"', () => {
+    const d = docFromText(`Suzlon Global Services Limited
+Date: 20/12/2024
+Letter of Appointment
+We are pleased to appoint you as Manager with effect from 06.01.2025.
+Basic 67,500 8,10,000`, 'appointment.pdf');
+    expect(d.kind).toBe('offer');
+    expect(d.doj).toBe('2025-01-06');
+  });
+
+  it("says so when a letter has no joining date instead of inventing one", () => {
+    const d = docFromText(`Suzlon Global Services Limited\nDate: 20/12/2024\nLetter of Appointment\nBasic 67,500 8,10,000`, 'appointment.pdf');
+    const e = applyDocs({ ...blankJob('Job 1', '2026-04-01'), docs: [d] }, {}, bundledRules).emp;
+    expect(e.startSource).toBe('approx');
+    expect(e.start).toBe('2024-12-20');
+    const none = applyDocs({ ...blankJob('Job 1', '2026-04-01'), docs: [{ ...d, docDate: undefined }] }, {}, bundledRules).emp;
+    expect(none.startSource).toBe('default');
+  });
+});

@@ -14,7 +14,7 @@ import {
   window,
 } from './schedule';
 import { round10, taxOn } from './tax';
-import { stageTds, type PreviousIncome, type StageRow } from './tds';
+import { stageTds, type FullYearView, type PreviousIncome, type StageRow } from './tds';
 import type { Employment, MonthLine, OneTime, Recovery, Scenario, Structure, TaxBreakdown } from './types';
 
 export const MAX_EMPLOYERS = 3;
@@ -243,7 +243,19 @@ export function compute(s: Scenario, rules: Rules = bundledRules): Result {
             tds: earlier.reduce((a, r) => a + (r.totalsOnly?.tds ?? r.lines.reduce((b, l) => b + l.tds, 0)), 0),
           }
         : null;
-    const stage = stageTds(lines, e.tdsKnown, prev, t);
+    // Before you resign, this payroll assumes you stay till March (see FullYearView).
+    let fullYear: FullYearView | undefined;
+    if (k < s.employers.length - 1 && emp.end) {
+      const stay = buildLines({ ...e, end: '' }, k, s.fy, thirty, [], rules, t);
+      const months = fyMonths(s.fy);
+      fullYear = {
+        untilMonth: monthOf(emp.resignedOn || emp.end),
+        regular: stay.reduce((a, l) => a + l.basic + l.hra + l.special + l.others, 0),
+        npsDeductible: stay.reduce((a, l) => a + l.npsDeductible, 0),
+        monthsToMarch: (m) => 12 - months.indexOf(m),
+      };
+    }
+    const stage = stageTds(lines, e.tdsKnown, prev, t, fullYear);
     lines.forEach(finishLine);
     out.push({ name: emp.name, lines, stage, fnf, form12B: f12 });
   });

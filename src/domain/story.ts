@@ -171,7 +171,11 @@ export function buildTimeline(s: Scenario, r: Result): TimelineEvent[] {
     }
     const st = e.structure;
     const pay = `${inr(st.basic)} basic a month, ${inr(fixedMonthly(st))} fixed gross${e.ctc ? `, CTC ${inr(e.ctc)}` : ''}`;
-    if (e.start) ev.push({ date: e.start, job: k, text: `${past(e.start) ? 'Joined' : 'Join'} ${name}`, detail: pay });
+    if (e.startSource === 'default')
+      ev.push({ date: fyStart(s.fy), job: k, text: `Working at ${name}`, detail: `${pay}. Your joining date wasn't in the files; add it under "Check the numbers".`, tone: 'info' });
+    else if (e.startSource === 'approx')
+      ev.push({ date: e.start, monthOnly: true, job: k, text: `Joined ${name} (around this date)`, detail: `${pay}. Date taken from the appointment letter.` });
+    else if (e.start) ev.push({ date: e.start, job: k, text: `${past(e.start) ? 'Joined' : 'Join'} ${name}`, detail: pay });
 
     // Hikes and arrears.
     const arrears = arrearsFor(e, thirty);

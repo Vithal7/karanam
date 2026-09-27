@@ -146,16 +146,20 @@ export interface Facts {
   penalty?: number;
   buyout?: { mode: 'actuals' | 'cap'; cap?: number };
   joiningClawbackMonths?: number;
+  /** Tax computation sheet: income tax deducted so far this year. */
+  tdsToDate?: number;
 }
 
 /** When the employer gets Form 12B (earlier salary + TDS) relative to the joining month. */
 export type Form12B = 'first' | 'second' | 'never';
 
-/** Numbers pulled from one uploaded file. File contents are never stored. */
+export type DocKind = 'offer' | 'appraisal' | 'payslip' | 'resignation' | 'fnf' | 'taxsheet' | 'other';
+
+/** Numbers pulled from one uploaded file. Its text is kept on this device only, to re-read it. */
 export interface DocRecord {
   id: string;
   name: string;
-  kind: 'offer' | 'appraisal' | 'payslip' | 'resignation' | 'fnf';
+  kind: DocKind;
   /** Letter date or payslip month (YYYY-MM-DD), if found. */
   docDate?: string;
   /** Monthly component values keyed by field (basic, hra, special, epf, pt, ctc, ...). */
@@ -164,6 +168,8 @@ export interface DocRecord {
   employer?: string;
   ytdTds?: number;
   facts?: Facts;
+  /** The file's text, so it can be re-read if its type is corrected. */
+  text?: string;
 }
 
 export interface Employment {
@@ -193,6 +199,8 @@ export interface Employment {
   buyout?: Buyout;
   /** Resignation date, for the story view. */
   resignedOn?: string;
+  /** Where the start date came from: a letter, a letter's date (approximate), you, or a placeholder. */
+  startSource?: 'doc' | 'approx' | 'user' | 'default';
   docs: DocRecord[];
   /** "I only know the totals": no monthly detail, just gross earned and TDS this FY. */
   totalsOnly?: { gross: number; tds: number };

@@ -5,7 +5,8 @@
 import type { Facts } from '../domain/types';
 import { MON_RE, MONTHS, findDate, numbersIn, toLines, validDate, year4 } from './parse';
 
-export type DocKind = 'offer' | 'appraisal' | 'payslip' | 'resignation' | 'fnf';
+import type { DocKind } from '../domain/types';
+export type { DocKind };
 
 export type { Facts };
 
@@ -14,6 +15,13 @@ const has = (re: RegExp, t: string) => (t.match(new RegExp(re.source, 'gi')) ?? 
 /** Scores each kind by its tell-tale phrases; offer letters are the fallback. */
 export function classifyDoc(text: string): DocKind {
   const score: Record<DocKind, number> = {
+    other: 0,
+    taxsheet:
+      3 *
+      has(
+        /tax\s+computation|computation\s+of\s+(income|tax)|income\s+tax\s+(computation|projection|worksheet|calculation|statement)|projected\s+(annual\s+)?(income|salary|gross)|tax\s+on\s+total\s+income|form\s*12\s*bb|chapter\s+vi\s*-?\s*a|tax\s+(already\s+)?(deducted|recovered)\s+(till|so\s+far|to\s+date|up\s*to)|tax\s+worksheet|balance\s+tax\s+(payable|to\s+be\s+deducted)/,
+        text,
+      ),
     fnf: 3 * has(/full\s*(and|&)\s*final|\bf\s*&\s*f\b|\bfnf\b|final\s+settlement|settlement\s+(statement|slip)/, text),
     payslip: 3 * has(/pay\s*slip|salary\s+slip|payslip|pay\s+period|net\s+pay\b/, text),
     appraisal:
@@ -26,7 +34,7 @@ export function classifyDoc(text: string): DocKind {
   };
   // A new offer usually mentions "relieving letter" only as a joining requirement.
   if (score.offer >= 4) score.resignation = Math.max(0, score.resignation - 3);
-  const order: DocKind[] = ['fnf', 'payslip', 'resignation', 'appraisal', 'offer'];
+  const order: DocKind[] = ['taxsheet', 'fnf', 'payslip', 'resignation', 'appraisal', 'offer'];
   let best: DocKind = 'offer';
   for (const k of order) if (score[k] > score[best] || (score[k] === score[best] && score[k] > 0 && order.indexOf(k) < order.indexOf(best))) best = k;
   return score[best] > 0 ? best : 'offer';
@@ -158,6 +166,15 @@ export function extractFacts(text: string, kind: DocKind): Facts {
     f.penalty = moneyAfter(flat, /(penalty|liquidated\s+damages|bond\s+(amount|recovery)|breach\s+of\s+contract)/, 60);
   }
 
+  if (kind === 'taxsheet') {
+    f.tdsToDate = moneyAfter(
+      flat,
+      /(income\s+tax|tax|tds)\s+(already\s+)?(deducted|paid|recovered)\s*(till|to|up\s*to|so\s*far|until|upto)?\s*(date|now)?\s*(:|-)?/,
+      60,
+      100,
+    );
+  }
+
   if (kind === 'offer') {
     const bo = /notice\s*(period\s*)?buy\s*-?\s*out|buy\s*-?\s*out\s+(of\s+)?(your\s+)?notice|reimburse\w*\s+(the\s+)?notice/i.exec(flat);
     if (bo) {
@@ -175,7 +192,8 @@ export function extractFacts(text: string, kind: DocKind): Facts {
       }
     }
   }
-  return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined)) as Facts;
+  // Anything above ₹5 crore is a misread (an ID or a merged table cell), not a settlement amount.
+  return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined && !(typeof v === 'number' && v > 50_000_000))) as Facts;
 }
 
 const SUFFIX = /\b(private|pvt|limited|ltd|llp|inc|incorporated|corporation|corp|co|company|technologies|technology|tech|solutions|services|systems|software|labs|india|global|consulting|group)\b\.?/gi;

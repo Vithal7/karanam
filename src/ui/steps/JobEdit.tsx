@@ -1,5 +1,5 @@
 import { fyStart, maxDate, monthOf } from '../../domain/fy';
-import type { Employment, OneTime, Scenario } from '../../domain/types';
+import type { DocKind, Employment, OneTime, Scenario } from '../../domain/types';
 import type { Choices } from '../../extract/merge';
 import { rs } from '../../format';
 import type { FieldMarks } from '../../state';
@@ -26,6 +26,7 @@ export function JobEditStep(props: {
   onAddFiles: (f: ReadFile[]) => void;
   onRemoveDoc: (id: string) => void;
   onChoose: (field: string, choice: string) => void;
+  onReclassify: (docId: string, kind: DocKind) => void;
   onDone: () => void;
 }) {
   const { s, index } = props;
@@ -48,8 +49,20 @@ export function JobEditStep(props: {
         <Field label="Company">
           <input id={`name-${e.id}`} class="text" value={e.name} onInput={(ev) => set({ name: (ev.target as HTMLInputElement).value })} />
         </Field>
-        <Field label={isNew && e.start >= fyStart(s.fy) ? 'Date of joining' : 'Joined on'} mark={props.marks.start} hint={!isNew ? 'An old date is fine: only this financial year is counted.' : undefined}>
-          <DateInput value={e.start} onChange={(v) => set({ start: v })} ariaLabel="Joined on" />
+        <Field
+          label={isNew && e.start >= fyStart(s.fy) ? 'Date of joining' : 'Joined on'}
+          mark={e.startSource === 'default' ? 'missing' : e.startSource === 'approx' ? 'guessed' : props.marks.start}
+          hint={
+            e.startSource === 'default'
+              ? 'Not found in your letters. Enter your joining date.'
+              : e.startSource === 'approx'
+                ? "Taken from the letter's date; the joining date wasn't in it. Correct it if needed."
+                : !isNew
+                  ? 'An old date is fine: only this financial year is counted.'
+                  : undefined
+          }
+        >
+          <DateInput value={e.start} onChange={(v) => set({ start: v, startSource: 'user' })} ariaLabel="Joined on" />
         </Field>
         {!isNew && (
           <Segmented
@@ -80,7 +93,7 @@ export function JobEditStep(props: {
         </div>
       ) : (
         <>
-          <DocsPanel emp={e} choices={props.choices} onAdd={props.onAddFiles} onRemove={props.onRemoveDoc} onChoose={props.onChoose} />
+          <DocsPanel emp={e} choices={props.choices} onAdd={props.onAddFiles} onRemove={props.onRemoveDoc} onChoose={props.onChoose} onReclassify={props.onReclassify} />
           <Warnings items={props.warnings} />
           <h2 class="section">Salary {e.revisions.length ? 'when you joined' : ''}</h2>
           <StructureEditor value={e.structure} marks={props.marks} sources={props.sources} month={monthOf(maxDate(e.start || fyStart(s.fy), fyStart(s.fy)))} onChange={(x) => set({ structure: x })} />

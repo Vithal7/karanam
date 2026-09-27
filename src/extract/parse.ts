@@ -145,7 +145,10 @@ export function numbersIn(line: string): Num[] {
   const out: Num[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(s))) {
-    let v = parseFloat(m[1].replace(/,/g, '') + (m[2] || ''));
+    const digits = m[1].replace(/,/g, '');
+    // Account numbers, phone numbers, PAN/UAN digits: long digit runs are never salary.
+    if (digits.length > 9 || (!m[1].includes(',') && digits.length > 8)) continue;
+    let v = parseFloat(digits + (m[2] || ''));
     const unit = (m[3] || '').toLowerCase();
     if (unit === '%') {
       out.push({ value: v / 100, pct: true });
@@ -155,6 +158,7 @@ export function numbersIn(line: string): Num[] {
     else if (unit.startsWith('cr')) v *= 10_000_000;
     else if (unit === 'k') v *= 1_000;
     if (v < 100) continue; // serial numbers, days, clause numbers
+    if (v > 500_000_000) continue; // above ₹50 crore: not a salary figure
     out.push({ value: v, pct: false });
   }
   return out;
@@ -330,7 +334,8 @@ export function parseText(text: string): Extracted {
 
   // Date of joining.
   let doj: Extracted['doj'];
-  const dojRe = /date\s+of\s+joining|joining\s+date|\bdoj\b|join(ing)?\s+(us\s+)?(on|by|from)|report(ing)?\s+(to\s+.{0,40}?)?(on|by)|commence(ment)?|start(ing)?\s+date|effective\s+(date|from)|expected\s+to\s+join/i;
+  const dojRe =
+    /date\s+of\s+(joining|appointment|commencement)|joining\s+date|\bdoj\b|join(ing|ed)?\s+(us|the\s+company|the\s+services\s+of[^.]{0,50}?)?\s*(on|by|from|w\.?e\.?f\.?|with\s+effect\s+from)|you\s+will\s+join|report(ing)?\s+(to\s+.{0,40}?)?(on|by)|commence(ment)?|start(ing)?\s+date|effective\s+(date|from)|expected\s+to\s+join|appoint(ed|ment)[^.\n]{0,80}?(w\.?e\.?f\.?|with\s+effect\s+from|effective)|with\s+effect\s+from/i;
   for (let i = 0; i < lines.length && !doj; i++) {
     if (!dojRe.test(lines[i])) continue;
     const d = findDate(lines[i].slice(lines[i].search(dojRe))) ?? findDate(lines[i + 1] || '');
@@ -415,7 +420,9 @@ function tidyName(n: string) {
  * head (first lines) and names repeated in the text win; salary-table rows never count.
  */
 export function findEmployer(text: string): string | undefined {
-  const lines = text.split(/\n/);
+  // Letterheads often wrap: "LinkedIn Technology Information\nPrivate Limited".
+  const joined = text.replace(/([A-Za-z&.)'’-])[ \t]*\n[ \t]*((Private|PRIVATE|Pvt|PVT)\b|Limited\b|LIMITED\b|Ltd\b|LTD\b|LLP\b)/g, '$1 $2');
+  const lines = joined.split(/\n/);
   const cands = new Map<string, { name: string; score: number }>();
   const run = "((?:[A-Z0-9][\\w&.'’-]*[ \\t]+){1,5}?)";
   lines.forEach((line, i) => {
@@ -425,6 +432,9 @@ export function findEmployer(text: string): string | undefined {
       while ((m = re.exec(line))) {
         const name = `${m[1]}${m[2]}`.trim().replace(/^(for|from|at|with|of|by|to|dear|and|the)\s+/i, '');
         if (NOT_COMPANY.test(m[1]) || name.split(/\s+/).length < 2) continue;
+        // "Private Limited" on its own, or "The Company Limited", names nothing.
+        const core = name.replace(/\b(private|pvt|limited|ltd|llp|inc|corporation|the|company|india)\b\.?/gi, '').replace(/[^A-Za-z0-9]/g, '');
+        if (core.length < 2) continue;
         const key = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
         const c = cands.get(key) ?? { name: tidyName(name), score: 0 };
         c.score += weight + (i < 8 ? 3 : 0) + 1;

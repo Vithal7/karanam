@@ -140,6 +140,14 @@ export function App() {
       const employers = x.scenario.employers.map((j) => (j.id === id ? { ...j, docs: [...j.docs, ...docs] } : j));
       return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [id], rules);
     });
+  /** The user corrects a file's type: re-read its text as that type and rebuild the job. */
+  const reclassify = (jobId: string, docId: string, kind: DocRecord['kind']) =>
+    setSt((x) => {
+      const employers = x.scenario.employers.map((j) =>
+        j.id === jobId ? { ...j, docs: j.docs.map((d) => (d.id !== docId ? d : d.text ? docFromText(d.text, d.name, d.id, kind) : { ...d, kind })) } : j,
+      );
+      return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [jobId], rules);
+    });
   const answerHike = (jobId: string, docId: string, facts: Partial<Facts>) =>
     setSt((x) => {
       const employers = x.scenario.employers.map((j) =>
@@ -282,6 +290,7 @@ export function App() {
               onAddFiles={(f) => addFilesTo(editing.id, f)}
               onRemoveDoc={(d) => removeDoc(editing.id, d)}
               onChoose={(f, c) => choose(editing.id, f, c)}
+              onReclassify={(d, k) => reclassify(editing.id, d, k)}
               onDone={() => {
                 if (openConflicts(editing)) return;
                 setSt((x) => ({ ...x, scenario: { ...x.scenario, employers: orderJobs(x.scenario.employers) } }));

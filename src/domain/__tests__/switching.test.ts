@@ -96,3 +96,25 @@ describe('moving jobs', () => {
     expect(r.filing.gross).toBeCloseTo(grossWithGratuity - 300000, 6);
   });
 });
+
+describe('payroll before it knows you are leaving', () => {
+  // Earning ₹1.76L/month from Apr, leaving 1 Nov, resignation not handed in yet.
+  const S = job('S', '2025-01-06', '2026-11-01', 82080, { tdsKnown: { '2026-04': 16110, '2026-05': 16110, '2026-06': 16110, '2026-07': 32220, '2026-08': 32220 } });
+  const L = job('L', '2026-11-02', '', 142500, { form12B: 'second' });
+  const s: Scenario = { fy: 2026, today: '2026-09-27', settings: { thirtyDayMonth: false, nextFyHike: 0 }, employers: [S, L] };
+  const r = compute(s);
+  const sep = r.employers[0].stage.find((x) => x.month === '2026-09')!;
+
+  it('projects a full year and spreads tax over the months to March', () => {
+    expect(sep.monthsLeft).toBe(7);
+    expect(sep.projectedIncome).toBeCloseTo(12 * 164160, 0);
+    expect(sep.tds).toBeGreaterThan(0);
+  });
+
+  it('switches to the actual exit once you resign', () => {
+    const r2 = compute({ ...s, employers: [{ ...S, resignedOn: '2026-09-15' }, L] });
+    const sep2 = r2.employers[0].stage.find((x) => x.month === '2026-09')!;
+    expect(sep2.monthsLeft).toBe(3);
+    expect(sep2.projectedIncome).toBeLessThan(sep.projectedIncome);
+  });
+});

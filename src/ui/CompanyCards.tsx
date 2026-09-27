@@ -30,11 +30,17 @@ export function CompanyCards(props: { s: Scenario; r: Result; children?: (index:
               {props.badges && <span class={`badge ${k === n - 1 ? 'new' : ''}`}>{k === n - 1 ? (n > 1 ? (upcoming ? 'Joining' : 'Current') : 'Your job') : e.end && e.end < s.today ? 'Left' : 'Leaving'}</span>}
             </div>
             <div class="muted small">
-              {upcoming ? 'Joins' : 'Joined'} {short(e.start)}
+              {e.startSource === 'default'
+                ? 'Joining date not found'
+                : e.startSource === 'approx'
+                  ? `Joined around ${short(e.start)}`
+                  : `${upcoming ? 'Joins' : 'Joined'} ${short(e.start)}`}
               {e.end && ` · ${e.end < s.today ? 'left' : 'last day'} ${short(e.end)}`}
               {(from !== e.start || to !== e.end) && ` · counted ${short(from)} – ${short(to)}`}
             </div>
-            {e.totalsOnly ? (
+            {Math.abs(total) > 500_000_000 || Math.abs(tds) > 500_000_000 ? (
+              <p class="callout warn small">These numbers look wrong: a file was probably misread. Open "Check the numbers" and check each file's type and what we read from it.</p>
+            ) : e.totalsOnly ? (
               <div class="company-money">
                 <div>
                   <span class="stat-label">Earned this year</span>
@@ -64,6 +70,13 @@ export function CompanyCards(props: { s: Scenario; r: Result; children?: (index:
                   <span class="num">{rs(tds)}</span>
                 </div>
               </div>
+            )}
+            {k < n - 1 && !e.totalsOnly && e.end > s.today && (
+              <p class="muted small">
+                {e.resignedOn
+                  ? `Payroll knows you're leaving, so tax is spread over your last months.`
+                  : `Until you resign, payroll deducts tax as if you'll stay till March. Add your resignation email or date and the months after it adjust; any extra tax comes back as a refund.`}
+              </p>
             )}
             {props.children?.(k)}
           </div>

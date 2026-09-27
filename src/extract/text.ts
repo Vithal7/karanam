@@ -41,7 +41,7 @@ async function docxText(file: Blob): Promise<string> {
   return el.value;
 }
 
-export const ACCEPT = '.pdf,.docx,.txt,image/*,application/pdf';
+export const ACCEPT = '.pdf,.docx,.txt,image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 export async function fileToText(file: File, onProgress?: Progress): Promise<{ text: string; ocr: boolean }> {
   const name = file.name.toLowerCase();

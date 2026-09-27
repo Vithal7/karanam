@@ -78,13 +78,14 @@ export function Uploader(props: {
                 <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             )}
-            <button type="button" class={`btn ${props.compact ? '' : 'primary'}`} onClick={() => input.current?.click()}>
+            {/* A real label around the input: phones and in-app browsers often ignore input.click(). */}
+            <label class={`btn file-btn ${props.compact ? '' : 'primary'}`}>
               {props.buttonLabel ?? 'Choose files or take a photo'}
-            </button>
+              <input ref={input} class="visually-hidden" type="file" accept={ACCEPT} multiple onChange={(e) => handle((e.target as HTMLInputElement).files)} />
+            </label>
             {!props.compact && <p class="muted small">Offer letter, revision letters or payslips. PDF, Word or photos. You can pick several at once. They're read on your device and never uploaded.</p>}
           </>
         )}
-        <input ref={input} type="file" accept={ACCEPT} multiple hidden onChange={(e) => handle((e.target as HTMLInputElement).files)} />
       </div>
       {errors.length > 0 && (
         <div class="callout err">

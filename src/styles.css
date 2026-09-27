@@ -1091,3 +1091,25 @@ dl.kv dd.strong {
 .field .segmented + .money {
   margin-top: 6px;
 }
+
+/* File picker: the input stays in the layout (not display:none) so a tap on its label opens it everywhere. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+  opacity: 0;
+}
+.file-btn {
+  position: relative;
+  cursor: pointer;
+}
+.file-btn:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

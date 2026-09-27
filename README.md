@@ -63,16 +63,18 @@ English model from `node_modules` into `public/ocr/`, so OCR never touches a CDN
 | `src/extract/` | File → text (pdf.js, mammoth, tesseract.js), text → salary components, and merging several files per job |
 | `src/ui/`, `src/app.tsx` | The step-by-step wizard and results screen (Preact) |
 
-## Hosting (Cloudflare Pages)
+## Hosting (Cloudflare)
 
-The repo is private, so it's hosted on Cloudflare Pages (free for private repos). One-time setup:
+Deployed as a Cloudflare Worker serving static assets (`wrangler.jsonc`), free for private repos.
+In the Cloudflare dashboard, open the worker → **Settings → Build**:
 
-1. In the Cloudflare dashboard: **Workers & Pages → Create → Pages → Connect to Git**, then pick
-   `Vithal7/karanam`.
-2. Production branch `main`, build command `npm run build`, output directory `dist`. Node 22 is
-   picked up from `.node-version`.
-3. Every push to `main` deploys, and every PR gets a preview URL. `public/_headers` keeps
-   `rules.json`, `sw.js` and `index.html` uncached, so updates reach users quickly.
+- Git repository: `Vithal7/karanam`
+- Build command: `npm run build`
+- Deploy command: `npx wrangler deploy`
+- Production branch: `main`. Other branches get preview URLs.
+
+`public/_headers` keeps `rules.json`, `sw.js` and `index.html` uncached so updates reach users
+quickly. Node 22 comes from `.node-version`.
 
 `.github/workflows/ci.yml` runs the tests and a build on every push and PR. To host under a
 sub-path instead of a domain root, build with `BASE=/sub/path/ npm run build`.

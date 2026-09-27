@@ -16,6 +16,7 @@ import { PrevVariableQuestion, needsPrevVariable } from '../PrevVariable';
 import { Money, Percent } from '../controls';
 import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
+import { docHints } from '../docHints';
 import type { Pending } from '../pending';
 import { LocationQuestion } from '../Location';
 import { BuyoutQuestion, NpsQuestion, RelocationQuestion, needsBuyout, needsNps, needsRelocation } from '../JoiningQuestions';
@@ -76,6 +77,8 @@ export function StoryStep(props: {
   onAssign: (docId: string, target: string) => void;
   onDiscard: (docId: string) => void;
   onAddFiles: (f: ReadFile[]) => void;
+  /** Files for one job (from its "documents that would help" list). */
+  onAddFilesTo: (jobId: string, f: ReadFile[]) => void;
   onEdit: (id: string) => void;
   onRemove: (id: string) => void;
   onAddJob: () => void;
@@ -230,6 +233,24 @@ export function StoryStep(props: {
                       The salary breakup {rc.gap > 0 ? `is ${rs(rc.gap)} a month short of` : `is ${rs(-rc.gap)} a month more than`} what the CTC implies. Open "Check the
                       numbers" to fix it.
                     </p>
+                  ) : null;
+                })()}
+                {(() => {
+                  const hints = docHints(s, k);
+                  return hints.length ? (
+                    <div class="doc-hints">
+                      <p class="small">
+                        <strong>Documents that would help</strong>
+                      </p>
+                      <ul class="small">
+                        {hints.map((h) => (
+                          <li>
+                            <strong>{h.what}.</strong> <span class="muted">{h.why}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <Uploader compact buttonLabel={`+ Add to ${e.name || 'this job'}`} onFiles={(f) => props.onAddFilesTo(e.id, f)} />
+                    </div>
                   ) : null;
                 })()}
                 {!clarify && (props.notes[e.id] ?? []).map((t) => (

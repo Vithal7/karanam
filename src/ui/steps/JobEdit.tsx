@@ -111,7 +111,7 @@ export function JobEditStep(props: {
           <DocsPanel emp={e} choices={props.choices} onAdd={props.onAddFiles} onRemove={props.onRemoveDoc} onChoose={props.onChoose} onReclassify={props.onReclassify} />
           <Warnings items={props.warnings} />
           <h2 class="section">Salary {e.revisions.length ? 'when you joined' : ''}</h2>
-          <StructureEditor value={e.structure} marks={props.marks} sources={props.sources} month={monthOf(maxDate(e.start || fyStart(s.fy), fyStart(s.fy)))} onChange={(x) => set({ structure: x })} />
+          <StructureEditor emp={e} value={e.structure} marks={props.marks} sources={props.sources} month={monthOf(maxDate(e.start || fyStart(s.fy), fyStart(s.fy)))} onChange={(x) => set({ structure: x })} />
           <div class="card">
             <Field label="CTC (per year)" mark={props.marks.ctc} hint="From the letter. Used to size hikes given as a new CTC, and for the CTC vs in-hand comparison.">
               <Money value={e.ctc} onChange={(v) => set({ ctc: v })} ariaLabel="CTC per year" />

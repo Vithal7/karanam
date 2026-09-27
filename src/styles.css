@@ -1636,3 +1636,8 @@ h2, h3 { color: var(--navy); }
 .sidebar { padding-top: 16px; }
 .sidebar-cap { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 8px 12px 6px; }
 .sidebar.collapsed .sidebar-cap { visibility: hidden; }
+
+/* Documents that would help a job's timeline */
+.doc-hints { margin: 12px 0 4px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2, rgba(127, 127, 127, 0.07)); }
+.doc-hints ul { margin: 4px 0 8px; padding-left: 18px; }
+.doc-hints li { margin: 4px 0; }

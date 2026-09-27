@@ -107,7 +107,7 @@ export function HikesEditor(props: { emp: Employment; fy: number; thirty: boolea
               <Money value={r.ctc ?? 0} onChange={(v) => set(i, { ctc: v || undefined })} ariaLabel="New CTC" />
             </Field>
             {r.scaled && <p class="note">The letter gave only the total, so every component was raised by the same %. Fix the breakup below if your payslip shows otherwise.</p>}
-            <StructureEditor value={r.structure} month={r.payoutMonth ?? r.from} onChange={(x) => set(i, { structure: x, scaled: false })} />
+            <StructureEditor emp={e} value={r.structure} month={r.payoutMonth ?? r.from} onChange={(x) => set(i, { structure: x, scaled: false })} />
             <button type="button" class="btn small ghost" onClick={() => props.onChange({ ...e, revisions: e.revisions.filter((_, j) => j !== i) })}>
               Remove this hike
             </button>

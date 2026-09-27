@@ -88,6 +88,24 @@ export function ptFor(emp: Employment, s: Structure, month: string, regular: num
   return due === month ? slabAmount(rule, full * 6) : 0;
 }
 
+/**
+ * Professional tax in a normal month, averaged over the year (a February top-up or a half-yearly
+ * collection spread out). Your state's rule when we have it; else the amount you entered.
+ */
+export function monthlyPt(emp: Employment, s: Structure, rules: Rules): number {
+  const rule = ptRuleFor(emp, rules);
+  if (rule === 'none') return 0;
+  if (!rule) return s.pt;
+  const full = fixedMonthly(s);
+  if (rule.basis === 'monthly') {
+    const amt = slabAmount(rule, full);
+    const top = rule.slabs[rule.slabs.length - 1].amount;
+    return rule.special && amt === top && amt > 0 ? (amt * 11 + rule.special.amount) / 12 : amt;
+  }
+  if (rule.basis === 'annual') return slabAmount(rule, full * 12) / 12;
+  return (slabAmount(rule, full * 6) * 2) / 12;
+}
+
 /** The structure actually paid in a given month: a hike counts from the month it's first paid. */
 export function structureFor(emp: Employment, month: string): Structure {
   let s = emp.structure;

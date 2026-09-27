@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { monthName } from '../domain/fy';
-import { epfFor, fixedMonthly } from '../domain/schedule';
+import { epfFor, fixedMonthly, monthlyPt, ptRuleFor } from '../domain/schedule';
+import { ptSummary } from './Location';
 import type { EpfMode, Employment, OneTime, OneTimeKind, Structure } from '../domain/types';
 import { rulesFor } from '../rules';
 import { rs, uid } from '../format';
@@ -10,7 +11,7 @@ import { Field, Money, MonthInput, Percent, Segmented, Toggle } from './controls
 
 type Period = 'm' | 'y';
 
-export function StructureEditor(props: { value: Structure; onChange: (s: Structure) => void; marks?: FieldMarks; sources?: Record<string, string>; month?: string }) {
+export function StructureEditor(props: { value: Structure; onChange: (s: Structure) => void; marks?: FieldMarks; sources?: Record<string, string>; month?: string; /** The job: its state decides professional tax. */ emp?: Employment }) {
   const [period, setPeriod] = useState<Period>('m');
   const rules = useRules();
   const src = props.sources ?? {};
@@ -81,9 +82,17 @@ export function StructureEditor(props: { value: Structure; onChange: (s: Structu
         />
         {s.epfMode === 'fixed' && <Money value={s.epf} onChange={(v) => set({ epf: v })} ariaLabel="Employee PF per month" />}
       </Field>
-      <Field label="Professional tax (per month)" mark={m.pt} hint="₹200 in most states (Karnataka, Maharashtra, Telangana…). ₹0 in Delhi, Haryana, UP.">
-        <Money value={s.pt} onChange={(v) => set({ pt: v })} ariaLabel="Professional tax per month" />
-      </Field>
+      {props.emp && ptRuleFor(props.emp, rules) !== undefined ? (
+        <Field label="Professional tax" hint="Set by the state you work in. Change the state under “Where you work”.">
+          <p class="note">
+            {rs(monthlyPt(props.emp, s, rules))} a month on average. {ptSummary(props.emp, rules)}
+          </p>
+        </Field>
+      ) : (
+        <Field label="Professional tax (per month)" mark={m.pt} hint="Set your state under “Where you work” and it's worked out for you. ₹200 in most states; ₹0 in Delhi, Haryana, UP.">
+          <Money value={s.pt} onChange={(v) => set({ pt: v })} ariaLabel="Professional tax per month" />
+        </Field>
+      )}
       <Field label="Employer NPS (% of basic)" mark={m.nps} hint={`Saves tax under 80CCD(2), up to ${Math.round(rulesFor(rules, 9999).npsCapPctOfBasic * 100)}% of basic.`}>
         <Percent value={s.npsPct} onChange={(v) => set({ npsPct: v })} ariaLabel="Employer NPS percent of basic" />
       </Field>

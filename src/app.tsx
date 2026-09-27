@@ -7,6 +7,7 @@ import type { DocRecord, Employment, Facts } from './domain/types';
 import { applyEvents } from './extract/events';
 import { assignDocs, blankJob, docFromText, docsFromText, orderJobs } from './extract/intake';
 import { applyDocs, mergeDocs, baseDocs } from './extract/merge';
+import { isNote } from './extract/note';
 import { type Rules } from './rules';
 import { activeRules, watchRules } from './rules/update';
 import {
@@ -183,12 +184,18 @@ export function App() {
     });
   const choose = (id: string, field: string, choice: string) =>
     setSt((x) => rebuild({ ...x, choices: { ...x.choices, [id]: { ...(x.choices[id] ?? {}), [field]: choice } } }, [id], rules));
-  const addFilesTo = (id: string, files: ReadFile[]) =>
+  const addFilesTo = (id: string, files: ReadFile[]) => {
+    // A typed note can be about two jobs: sort it like any new file.
+    const notes = files.filter((f) => isNote(f.text));
+    if (notes.length) ingest(notes);
+    files = files.filter((f) => !isNote(f.text));
+    if (!files.length) return;
     setSt((x) => {
       const docs: DocRecord[] = files.map((f) => docFromText(f.text, f.name));
       const employers = x.scenario.employers.map((j) => (j.id === id ? { ...j, docs: [...j.docs, ...docs] } : j));
       return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [id], rules);
     });
+  };
   /** The user corrects a file's type: re-read its text as that type and rebuild the job. */
   const reclassify = (jobId: string, docId: string, kind: DocRecord['kind']) =>
     setSt((x) => {
@@ -378,6 +385,7 @@ export function App() {
               }
               onDropAside={(id) => update({ aside: st.aside.filter((y) => y.doc.id !== id) })}
               onAddFiles={ingest}
+              onAddFilesTo={addFilesTo}
               onEdit={(id) => go('job-edit', id)}
               onRemove={removeJob}
               onAddJob={addJob}

@@ -9,6 +9,7 @@ import {
   epfFor,
   finishLine,
   fixedMonthly,
+  monthlyPt,
   structureFor,
   taxableGross,
   variableAsOneTime,
@@ -263,7 +264,7 @@ function steadyStructure(emp: Employment, month: string, rules: Rules): Structur
 }
 
 /** What a normal full year on this structure looks like per month (no one-offs). */
-export function steadyState(st: Structure, month: string, rules: Rules, t: TaxYearRules): SteadyState {
+export function steadyState(st: Structure, month: string, rules: Rules, t: TaxYearRules, pt = st.pt): SteadyState {
   const gross = fixedMonthly(st);
   const epf = epfFor(st, month, rules);
   const nps = st.npsInGross ? st.npsPct * st.basic : 0;
@@ -271,7 +272,7 @@ export function steadyState(st: Structure, month: string, rules: Rules, t: TaxYe
   const taxable = round10(Math.max(0, gross * 12 - t.standardDeduction - npsDed * 12));
   const annualTax = taxOn(taxable, t).total;
   const tds = annualTax / 12;
-  return { gross, epf, pt: st.pt, nps, tds, annualTax, inHand: gross - epf - st.pt - nps - tds };
+  return { gross, epf, pt, nps, tds, annualTax, inHand: gross - epf - pt - nps - tds };
 }
 
 export interface MonthSummary {
@@ -461,7 +462,10 @@ export function compute(s: Scenario, rules: Rules = bundledRules): Result {
       remainingInHand: remaining.reduce((a, m) => a + m.inHand, 0),
       remainingMonths: remaining.length,
     },
-    steady: steadyState(steadyStructure(last, lastMonth, rules), lastMonth, rules, t),
+    steady: (() => {
+      const st = steadyStructure(last, lastMonth, rules);
+      return steadyState(st, lastMonth, rules, t, monthlyPt(last, st, rules));
+    })(),
     nextFy: projectNextFy(s, rules),
   };
 }

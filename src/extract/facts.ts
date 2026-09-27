@@ -3,7 +3,7 @@
  * hike effective dates, last working days, F&F amounts, buyout caps, bonus clawbacks.
  */
 import { findLocation } from './location';
-import type { Facts } from '../domain/types';
+import type { ClawbackTerms, Facts } from '../domain/types';
 import { MON_RE, MONTHS, findDate, numbersIn, toLines, validDate, year4 } from './parse';
 
 import type { DocKind } from '../domain/types';
@@ -180,6 +180,7 @@ export function extractFacts(text: string, kind: DocKind): Facts {
       f.buyout = cap ? { mode: 'cap', cap } : { mode: 'actuals' };
     }
     f.probationMonths = findProbationMonths(flat);
+    f.relocation = findRelocation(flat);
     const jb = /(joining|sign[\s-]*on)\s+(bonus|amount)/i.exec(flat);
     if (jb) {
       const around = flat.slice(jb.index, jb.index + 400);
@@ -189,6 +190,15 @@ export function extractFacts(text: string, kind: DocKind): Facts {
         f.joiningClawbackMonths = /year/i.test(m[5]) ? n * 12 : n;
       }
     }
+  }
+  if (kind === 'offer' || kind === 'appraisal') {
+    const terms: NonNullable<Facts['clawbackTerms']> = {};
+    const j = findClawbackTerms(flat, 'joining');
+    const r = findClawbackTerms(flat, 'retention');
+    if (j) terms.joining = j;
+    if (r) terms.retention = r;
+    if (j || r) f.clawbackTerms = terms;
+    if (j && !f.joiningClawbackMonths && kind === 'offer') f.joiningClawbackMonths = j.months;
   }
   // TAN: four letters, five digits, a letter (a PAN has five letters first).
   f.tan = /\bTAN\b(?:\s*(?:of\s+(?:the\s+)?(?:employer|deductor)|no\.?|number|#))?\s*[:\-]?\s*([A-Z]{4}\d{5}[A-Z])\b/i.exec(t)?.[1]?.toUpperCase();
@@ -278,4 +288,74 @@ export function findTdsToDate(text: string): number | undefined {
     return nums.length > 2 ? nums[nums.length - 1].value : nums[0].value;
   }
   return undefined;
+}
+
+const BONUS_RE = {
+  joining: /(joining|sign(?:ing)?[\s-]*on|signing)\s+(bonus|amount)/gi,
+  retention: /retention\s+(bonus|amount|pay)/gi,
+};
+const NUM = '(\\d{1,2}|one|two|three|four|five|six|nine|twelve|eighteen|twenty[\\s-]four|thirty[\\s-]six)';
+const toNum = (x: string) => WORDS[x.toLowerCase().replace(/\s/, '-')] ?? parseInt(x, 10);
+const toMonths = (n: number, unit: string) => (/year/i.test(unit) ? n * 12 : n);
+
+/** The share repaid that a clause states: "100%", "50 percent", "full", "half". */
+function shareIn(clause: string): number | undefined {
+  const p = /(\d{1,3})\s*(%|per\s*cent|percent)/i.exec(clause);
+  if (p && +p[1] > 0 && +p[1] <= 100) return +p[1] / 100;
+  if (/\bhalf\b/i.test(clause)) return 0.5;
+  if (/\b(full|entire|whole|complete|total)\b|in\s+full|100\s*%/i.test(clause)) return 1;
+  return undefined;
+}
+
+/**
+ * Repayment terms of a joining or retention bonus: "repayable in full if you leave within 12
+ * months", "recovered pro-rata if you resign before completing one year", "100% within the first
+ * year and 50% within the second year", "if you leave within 12 months of receiving it".
+ */
+export function findClawbackTerms(flat: string, which: 'joining' | 'retention'): ClawbackTerms | undefined {
+  const other = which === 'joining' ? BONUS_RE.retention : BONUS_RE.joining;
+  for (const m of flat.matchAll(new RegExp(BONUS_RE[which].source, 'gi'))) {
+    // The clause about this bonus: up to ~500 characters, stopping where another bonus starts.
+    // Letters wrap sentences across lines.
+    let around = flat.slice(m.index, m.index + 500).replace(/\s*\n\s*/g, ' ');
+    const cut = new RegExp(other.source, 'i').exec(around.slice(m[0].length));
+    if (cut) around = around.slice(0, m[0].length + cut.index);
+    if (!/leav|resign|separat|exit|quit|recover|repa(y|id)|refund|claw|return|forfeit/i.test(around)) continue;
+    const periods: { months: number; share?: number }[] = [];
+    const clauses = around.split(/[;.](?!\d)|,?\s+(?:and|or|while|whereas)\s+(?=(?:if|in\s+case|\d{1,3}\s*%|between|within|after|upto|up\s+to))/i);
+    for (const c of clauses) {
+      const between = new RegExp(`between\\s+${NUM}\\s*(?:months?|years?)?\\s*(?:and|to|-)\\s*${NUM}\\s*(months?|years?)`, 'i').exec(c);
+      const ordinal = /(first|second|third)\s+year/i.exec(c);
+      const within = new RegExp(
+        `(?:within|before\\s+(?:completing|completion\\s+of)|less\\s+than|prior\\s+to\\s+(?:completing|completion\\s+of)|up\\s*to|in\\s+the\\s+first|minimum\\s+(?:period\\s+)?of|at\\s+least)\\s+(?:a\\s+(?:period|service)\\s+of\\s+)?${NUM}\\s*(?:\\(\\w+\\)\\s*)?(months?|years?)`,
+        'i',
+      ).exec(c);
+      let months: number | undefined;
+      if (between) months = toMonths(toNum(between[2]), between[3]);
+      else if (within) months = toMonths(toNum(within[1]), within[2]);
+      else if (ordinal) months = 12 * { first: 1, second: 2, third: 3 }[ordinal[1].toLowerCase() as 'first']!;
+      if (!months || months > 60) continue;
+      periods.push({ months, share: shareIn(c) });
+    }
+    if (!periods.length) continue;
+    const from = /(of|from|after)\s+(the\s+)?(date\s+of\s+)?(its\s+)?(receipt|receiving|payment|payout|disbursement|being\s+paid|credit)/i.test(around) ? 'payment' : undefined;
+    const withShare = periods.filter((p) => p.share !== undefined);
+    if (withShare.length && (withShare.length > 1 || withShare[0].share! < 1)) {
+      const tiers = [...new Map(periods.map((p) => [p.months, { months: p.months, share: p.share ?? 1 }])).values()].sort((a, b) => a.months - b.months);
+      return { months: tiers[tiers.length - 1].months, basis: 'tiered', tiers, ...(from ? { from } : {}) };
+    }
+    const prorata = /pro[\s-]?rat(a|ed)|proportionat|proportional|unserved|remaining\s+(period|months|tenure)|balance\s+(period|months|tenure)/i.test(around);
+    return { months: Math.max(...periods.map((p) => p.months)), basis: prorata ? 'prorata' : 'full', ...(from ? { from } : {}) };
+  }
+  return undefined;
+}
+
+/** Relocation support in an offer: an amount, and whether it's reimbursed against bills. */
+export function findRelocation(flat: string): Facts['relocation'] {
+  const m = /relocation|relocating|shifting\s+(allowance|expenses)|transfer\s+allowance/i.exec(flat);
+  if (!m) return undefined;
+  const around = flat.slice(m.index, m.index + 300);
+  const reimbursement = /reimburs|actuals|against\s+(original\s+)?(bills|receipts|invoices)|actual\s+(expenses|cost)|on\s+submission/i.test(around);
+  const amount = moneyAfter(around, /relocation|relocating|shifting|transfer/, 120);
+  return amount && amount >= 1000 ? { amount, reimbursement } : reimbursement ? { reimbursement } : { reimbursement: false };
 }

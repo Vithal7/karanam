@@ -228,7 +228,10 @@ export function applyDocs(
   if (base.joining) {
     const month = addMonths(monthOf(out.start), docs.find((d) => d.fields.joiningOffset !== undefined)?.fields.joiningOffset ?? 0);
     const rest = out.oneTimes.filter((o) => o.kind !== 'joining');
-    out.oneTimes = [...rest, { id: 'joining', label: 'Joining bonus', kind: 'joining', amount: base.joining, month, taxable: true }];
+    const was = out.oneTimes.find((o) => o.kind === 'joining');
+    // Repayment terms you entered survive re-reading the files.
+    const kept = was?.clawbackEdited ? { clawbackMonths: was.clawbackMonths, clawbackBasis: was.clawbackBasis, clawbackTiers: was.clawbackTiers, clawbackFrom: was.clawbackFrom, clawbackEdited: true } : {};
+    out.oneTimes = [...rest, { id: 'joining', label: 'Joining bonus', kind: 'joining', amount: base.joining, month, taxable: true, ...kept }];
   }
   if (base.retention && !out.oneTimes.some((o) => o.id === 'retention'))
     out.oneTimes = [...out.oneTimes, { id: 'retention', label: 'Retention bonus', kind: 'bonus', amount: base.retention, month: addMonths(monthOf(out.start), 12), taxable: true }];

@@ -70,8 +70,21 @@ export interface OneTime {
   month: string;
   /** false for exempt receipts (e.g. reimbursements); true for almost everything. */
   taxable: boolean;
-  /** Joining bonus: repayable if you leave within this many months. */
+  /** Joining/retention bonus: repayable if you leave within this many months. */
   clawbackMonths?: number;
+  /**
+   * How much is repaid when you leave early (from the letter):
+   *  full    - all of it (the default)
+   *  prorata - only the unserved share: amount × (months not served ÷ clawbackMonths)
+   *  tiered  - a share by how long you stayed, from `clawbackTiers`
+   */
+  clawbackBasis?: 'full' | 'prorata' | 'tiered';
+  /** Tiered repayment: leave within `months` -> repay `share` (1 = all). Checked shortest first. */
+  clawbackTiers?: { months: number; share: number }[];
+  /** Period counted from the joining date (default) or from the month the bonus is paid. */
+  clawbackFrom?: 'joining' | 'payment';
+  /** You edited the repayment terms: re-reading the letters keeps them. */
+  clawbackEdited?: boolean;
   /** false for a perquisite (ESOP/RSU allotment): taxed as salary, never paid to you in cash. */
   cash?: boolean;
 }
@@ -111,6 +124,11 @@ export interface FnF {
   noticeAmount?: number;
   /** Joining/relocation bonus repaid to this employer. */
   clawback: number;
+  /**
+   * true when `clawback` came from a document or you typed it: it's used as is. Otherwise the
+   * amount is worked out from the bonus terms in your letters and your last working day.
+   */
+  clawbackManual?: boolean;
   /** Bond or contract-breach penalty. */
   penalty?: number;
   /** Gratuity or ex gratia amount from the F&F slip (or entered); overrides the calculation. */
@@ -158,6 +176,14 @@ export interface Form16 {
   part: 'A' | 'B' | 'AB';
 }
 
+/** When a bonus has to be paid back, and how much of it. */
+export interface ClawbackTerms {
+  months: number;
+  basis: 'full' | 'prorata' | 'tiered';
+  tiers?: { months: number; share: number }[];
+  from?: 'joining' | 'payment';
+}
+
 /** Dated facts read from a file, beyond salary components. */
 export interface Facts {
   effectiveFrom?: string;
@@ -183,6 +209,10 @@ export interface Facts {
   penalty?: number;
   buyout?: { mode: 'actuals' | 'cap'; cap?: number };
   joiningClawbackMonths?: number;
+  /** Repayment terms of a joining or retention bonus, as the letter states them. */
+  clawbackTerms?: Partial<Record<'joining' | 'retention', ClawbackTerms>>;
+  /** Relocation support in an offer letter. */
+  relocation?: { amount?: number; reimbursement: boolean };
   /** Employer's TAN (on Form 16, payslips, tax sheets), for the ITR's TDS schedule. */
   tan?: string;
   /** Form 16 figures, when the file is one. */
@@ -270,6 +300,11 @@ export interface Employment {
   leaveConfirmed?: boolean;
   /** For every job after the first: notice buyout it reimburses. */
   buyout?: Buyout;
+  /**
+   * Joining questions you've answered for this job, so they aren't asked again: employer NPS,
+   * notice buyout, relocation.
+   */
+  asked?: { nps?: boolean; buyout?: boolean; relocation?: boolean };
   /**
    * Where you work: the state decides professional tax. `source`: read from a letter's work
    * location (doc), guessed from a city mentioned in it (guess), or given by you (user).

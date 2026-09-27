@@ -18,6 +18,7 @@ import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
 import type { Pending } from '../pending';
 import { LocationQuestion } from '../Location';
+import { BuyoutQuestion, NpsQuestion, RelocationQuestion, needsBuyout, needsNps, needsRelocation } from '../JoiningQuestions';
 import { EarlierIncomeQuestion, Form12BQuestion, JoinDateQuestion, LeaveQuestion, PfRiseQuestion } from '../Questions';
 import { pfCeilingRiseIn } from '../../domain/schedule';
 import { fyStart } from '../../domain/fy';
@@ -211,6 +212,9 @@ export function StoryStep(props: {
                 )}
                 {clarify && !e.totalsOnly && e.startSource === 'approx' && <JoinDateQuestion emp={e} onChange={props.onChangeJob} />}
                 {clarify && k > 0 && !e.totalsOnly && !e.form12BConfirmed && <Form12BQuestion emp={e} prevName={s.employers.slice(0, k).map((x) => x.name).join(' and ')} onChange={props.onChangeJob} />}
+                {clarify && needsBuyout(s, k) && <BuyoutQuestion s={s} k={k} onChange={props.onChangeJob} />}
+                {clarify && needsNps(s, k) && <NpsQuestion s={s} k={k} rules={rules} onChange={props.onChangeJob} />}
+                {clarify && needsRelocation(s, k) && <RelocationQuestion s={s} k={k} onChange={props.onChangeJob} />}
                 {clarify && !e.totalsOnly && !e.pfRise && pfCeilingRiseIn(e, s.fy, rules) && <PfRiseQuestion emp={e} month={pfCeilingRiseIn(e, s.fy, rules)!} onChange={props.onChangeJob} />}
                 {clarify && e.fnf && !e.leaveConfirmed && !e.fnf.leaveDays && e.fnf.leaveAmount === undefined && (k < n - 1 || !!e.end) && <LeaveQuestion emp={e} onChange={props.onChangeJob} />}
                 {clarify && !e.totalsOnly && (!e.location?.state || e.location.source === 'guess') && <LocationQuestion emp={e} rules={rules} onChange={props.onChangeJob} />}

@@ -40,6 +40,8 @@ export interface AppState {
   view?: 'projection' | 'filing';
   /** You've seen the month-by-month result (stage 4). */
   seenResults?: boolean;
+  /** A job you just added without documents and haven't saved yet: Back or Cancel drops it. */
+  draftJob?: string;
 }
 
 export const todayISO = () => {

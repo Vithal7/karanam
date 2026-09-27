@@ -174,7 +174,10 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
       if (f.leaveDays !== undefined) fnf.leaveDays = f.leaveDays;
       if (f.leaveAmount !== undefined) fnf.leaveAmount = f.leaveAmount;
       if (f.noticeRecoveryAmount !== undefined) fnf.noticeAmount = f.noticeRecoveryAmount;
-      if (f.clawback !== undefined) fnf.clawback = f.clawback;
+      if (f.clawback !== undefined) {
+        fnf.clawback = f.clawback;
+        fnf.clawbackManual = true;
+      }
       if (f.penalty !== undefined) fnf.penalty = f.penalty;
       if (f.gratuity !== undefined) fnf.gratuity = f.gratuity;
       if (f.fnfPayMonth) fnf.payMonth = f.fnfPayMonth;
@@ -206,8 +209,21 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
     if (out.oneTimes.some((o) => o.kind === 'joining'))
       notes.push(`Your letter has ${probation} months' probation and doesn't say when the joining bonus is paid, so it's taken as paid after probation, with the ${monthLong(month)} salary. Change it under "Check the numbers" if your letter says otherwise.`);
   }
+  // Bonus repayment terms: the joining bonus's from the offer, a retention bonus's from the
+  // newest offer or increment letter that states them.
+  const letters = docs.filter((d) => d.kind === 'offer' || d.kind === 'appraisal').map((d) => d.facts ?? {});
+  const terms = (k: 'joining' | 'retention') => [...letters].reverse().find((f) => f.clawbackTerms?.[k])?.clawbackTerms?.[k];
+  const jt = terms('joining');
   const claw = offerFacts.find((f) => f.joiningClawbackMonths)?.joiningClawbackMonths;
-  if (claw) out.oneTimes = out.oneTimes.map((o) => (o.kind === 'joining' ? { ...o, clawbackMonths: claw } : o));
+  const rt = terms('retention');
+  out.oneTimes = out.oneTimes.map((o) => {
+    // Terms you edited stay.
+    if (o.clawbackEdited) return o;
+    const t = o.kind === 'joining' ? jt : /retention/i.test(o.label) ? rt : undefined;
+    if (t) return { ...o, clawbackMonths: t.months, clawbackBasis: t.basis, clawbackTiers: t.tiers, clawbackFrom: t.from };
+    if (o.kind === 'joining' && claw) return { ...o, clawbackMonths: claw };
+    return o;
+  });
 
   return { emp: out, notes, needs };
 }

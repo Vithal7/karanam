@@ -2,6 +2,7 @@
  * The year in plain words, job by job: "Joined Acme on 1 Mar 2024 at ₹60,000 basic. Hike from
  * Apr 2026 ... Last working day ... Leave encashment 22 days × ₹2,736 ...".
  */
+import { repayableText } from './clawback';
 import { buyoutAmount, fnfItems, form12BMonth, type Result } from './compute';
 import { addMonths, daysInMonth, fyStart, monthLong, monthName, monthOf, parseDate } from './fy';
 import { arrearsFor, fixedMonthly } from './schedule';
@@ -93,7 +94,7 @@ export function buildStory(s: Scenario, r: Result): StoryJob[] {
             : `Notice shortfall: ${e.fnf!.noticeDaysRecovered} days × ${inr(f.noticePerDay)} (${f.noticeRateLabel}) = ${inr(f.noticeRecovery)} recovered.`,
           tone: 'warn',
         });
-      if (f.clawback) lines.push({ text: `Bonus clawback: ${inr(f.clawback)} deducted.`, tone: 'warn' });
+      if (f.clawback) lines.push({ text: `Bonus clawback: ${inr(f.clawback)} deducted${f.clawbackFromTerms ? ', as your letter\'s repayment terms work out' : ''}.`, tone: 'warn' });
       if (f.penalty) lines.push({ text: `Penalty / bond recovery: ${inr(f.penalty)} deducted.`, tone: 'warn' });
       if (f.gratuity)
         lines.push({
@@ -108,8 +109,8 @@ export function buildStory(s: Scenario, r: Result): StoryJob[] {
     if (k > 0 || isNew) {
       const jb = e.oneTimes.find((o) => o.kind === 'joining');
       if (jb) {
-        const until = jb.clawbackMonths ? addMonths(monthOf(e.start), jb.clawbackMonths) : undefined;
-        lines.push({ text: `Joining bonus ${inr(jb.amount)}, paid in ${monthLong(jb.month)}.${until ? ` Repayable if you leave before ${monthLong(until)}.` : ''}`, tone: 'good' });
+        const rep = repayableText(jb, e.start);
+        lines.push({ text: `Joining bonus ${inr(jb.amount)}, paid in ${monthLong(jb.month)}.${rep ? ` ${rep}` : ''}`, tone: 'good' });
       }
       const prev = s.employers[k - 1];
       const pf = prev ? fnfItems(prev, s.fy, thirty) : null;
@@ -285,13 +286,13 @@ export function buildTimeline(s: Scenario, r: Result): TimelineEvent[] {
     }
     for (const o of e.oneTimes) {
       if (o.kind === 'joining') {
-        const until = o.clawbackMonths ? addMonths(monthOf(e.start), o.clawbackMonths) : undefined;
+        const rep = repayableText(o, e.start);
         ev.push({
           date: payday(o.month),
           monthOnly: true,
           job: k,
           text: `Joining bonus from ${name}: ${inr(o.amount)}`,
-          detail: until ? `Repayable if you leave before ${monthLong(until)}.` : undefined,
+          detail: rep || undefined,
           tone: 'good',
         });
       } else if (o.amount) ev.push({ date: payday(o.month), monthOnly: true, job: k, text: `${o.label} from ${name}: ${inr(o.amount)}`, tone: 'good' });

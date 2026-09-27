@@ -14,6 +14,7 @@ import {
   variableAsOneTime,
   window,
 } from './schedule';
+import { clawbackFor, type ClawbackLine } from './clawback';
 import { round10, taxOn } from './tax';
 import { stageTds, type FullYearView, type PreviousIncome, type StageRow } from './tds';
 import type { Employment, MonthLine, OneTime, Recovery, Scenario, Structure, TaxBreakdown } from './types';
@@ -32,6 +33,10 @@ export interface FnFItems {
   noticeRecovery: number;
   noticeFromSlip: boolean;
   clawback: number;
+  /** true when the clawback was worked out from the bonus terms in your letters. */
+  clawbackFromTerms: boolean;
+  /** Each bonus with repayment terms: whether they apply at your last day, and how much. */
+  clawbackLines: ClawbackLine[];
   penalty: number;
   /** Gratuity (5+ years, exempt up to ₹20 lakh) or ex gratia in lieu of it (under 5 years, taxable). */
   gratuity: number;
@@ -138,6 +143,9 @@ export function fnfItems(emp: Employment, fy: number, thirty = false): FnFItems 
   const noticePerDay = (f.noticeBasis === 'gross' ? gross : st.basic) / 30;
   const w = window(emp, fy);
   const g = gratuityFor(emp, st.basic, f);
+  // An amount from the F&F slip or one you typed wins; otherwise the letter's terms decide.
+  const claw = clawbackFor(emp);
+  const manualClaw = !!f.clawbackManual || !!f.clawback;
   return {
     perDay,
     leaveRateLabel,
@@ -147,7 +155,9 @@ export function fnfItems(emp: Employment, fy: number, thirty = false): FnFItems 
     leaveFromSlip: f.leaveAmount !== undefined,
     noticeRecovery: f.noticeAmount ?? Math.round(noticePerDay * (f.noticeDaysRecovered || 0)),
     noticeFromSlip: f.noticeAmount !== undefined,
-    clawback: f.clawback || 0,
+    clawback: manualClaw ? f.clawback || 0 : claw.amount,
+    clawbackFromTerms: !manualClaw,
+    clawbackLines: claw.lines,
     penalty: f.penalty || 0,
     ...g,
     leaveExemptLimit: Math.min(

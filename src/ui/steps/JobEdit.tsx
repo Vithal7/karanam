@@ -7,7 +7,7 @@ import { DateInput, Field, Money, MonthInput, Segmented, Warnings } from '../con
 import { Continue } from '../Continue';
 import { DocsPanel } from '../Docs';
 import { OneTimeEditor, StructureEditor } from '../Editors';
-import { ExitEditor, HikesEditor, JoiningEditor, VariableEditor } from '../JobSections';
+import { ClawbackTermsEditor, ExitEditor, HikesEditor, JoiningEditor, VariableEditor } from '../JobSections';
 import { ReconcileCard } from '../Reconcile';
 import { TdsMonths } from '../TdsMonths';
 import { LocationCard } from '../Location';
@@ -32,6 +32,8 @@ export function JobEditStep(props: {
   onChoose: (field: string, choice: string) => void;
   onReclassify: (docId: string, kind: DocKind) => void;
   onDone: () => void;
+  /** Set for a job you just added without documents: drop it and go back. */
+  onCancel?: () => void;
 }) {
   const { s, index } = props;
   const rules = useRules();
@@ -50,6 +52,14 @@ export function JobEditStep(props: {
 
   return (
     <>
+      {props.onCancel && (
+        <p class="callout info small">
+          Adding a job without documents. Changed your mind?{' '}
+          <button type="button" class="btn link inline" onClick={props.onCancel}>
+            Cancel and go back
+          </button>
+        </p>
+      )}
       <div class="card">
         <Field label="Company">
           <input id={`name-${e.id}`} class="text" value={e.name} onInput={(ev) => set({ name: (ev.target as HTMLInputElement).value })} />
@@ -127,6 +137,7 @@ export function JobEditStep(props: {
                   <MonthInput value={joining?.month ?? monthOf(e.start || s.today)} onChange={(x) => setJoining({ month: x })} ariaLabel="Joining bonus month" />
                 </Field>
               </div>
+              {joining && joining.amount > 0 && <ClawbackTermsEditor bonus={joining} onChange={(patch) => setJoining(patch)} />}
               {isNew && <VariableEditor emp={e} onChange={props.onChange} />}
               {isNew && e.start && e.start <= s.today && (
                 <Field
@@ -162,6 +173,13 @@ export function JobEditStep(props: {
       {prev && <JoiningEditor emp={e} prev={prev} fy={s.fy} thirty={thirty} onChange={props.onChange} />}
 
       <Continue label="Done" onClick={props.onDone} disabled={!e.totalsOnly && !e.structure.basic} why="Enter at least Basic, or switch to totals." />
+      {props.onCancel && (
+        <p class="center">
+          <button type="button" class="btn ghost" onClick={props.onCancel}>
+            Cancel, don't add this job
+          </button>
+        </p>
+      )}
     </>
   );
 }

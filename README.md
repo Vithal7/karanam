@@ -23,8 +23,13 @@ that workbook's figures exactly (`src/domain/__tests__/workbook.test.ts`).
    - **Leaving a job:** last working day and pro-rata salary, leave encashment at basic ÷ 30,
      basic ÷ 26, gross ÷ 30 or your own rate, notice-shortfall recovery on basic or gross, bonus
      clawback, bond penalty, gratuity, and the month the F&F is paid. Amounts on an F&F slip win.
-   - **Joining:** joining date, joining bonus and when it's paid (and repayable), notice buyout
-     on actuals or up to a cap, and whether Form 12B is given.
+   - **Joining:** joining date, joining bonus and when it's paid, notice buyout on actuals or up
+     to a cap, relocation support (reimbursed against bills, tax-free, or a taxable allowance),
+     whether employer NPS carries over from your last job, and whether Form 12B is given.
+   - **Bonus clawback:** the repayment terms of a joining or retention bonus are read from the
+     offer or increment letter (all of it within 12 months, pro-rata for the unserved period, or
+     a share by years of service), and the amount repaid at exit is worked out from your last
+     working day. An amount on the F&F slip wins.
 3. **Month-by-month money in your bank account** for every job, with TDS the way each payroll
    deducts it.
 4. **ITR help:** the salary schedule as ITR-1 / Form 16 lay it out, the refund or tax payable,

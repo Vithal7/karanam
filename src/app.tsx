@@ -130,7 +130,12 @@ export function App() {
   const s = st.scenario;
   const update = (patch: Partial<AppState>) => setSt((x) => ({ ...x, ...patch }));
   const go = (step: StepId, editing: string | null = null) => setSt((x) => ({ ...x, step, editing, history: [...x.history, x.step] }));
-  const back = () => setSt((x) => (x.history.length ? { ...x, step: x.history[x.history.length - 1], history: x.history.slice(0, -1), editing: null } : x));
+  const back = () => {
+    // Back out of a job you just added without documents: it's dropped, not left half-filled.
+    const draft = st.step === 'job-edit' && st.draftJob && st.editing === st.draftJob ? s.employers.find((j) => j.id === st.draftJob) : undefined;
+    if (draft && !draft.docs.length && !draft.structure.basic && !draft.totalsOnly) return cancelDraft();
+    setSt((x) => (x.history.length ? { ...x, step: x.history[x.history.length - 1], history: x.history.slice(0, -1), editing: null, draftJob: undefined } : x));
+  };
 
   const setJob = (e: Employment) =>
     setSt((x) => {
@@ -202,7 +207,16 @@ export function App() {
       const j = blankJob(`Job ${x.scenario.employers.length + 1}`, fyStart(x.scenario.fy));
       if (first.start > fyStart(x.scenario.fy)) j.end = dayBefore(first.start);
       j.fnf = { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 };
-      return { ...x, scenario: { ...x.scenario, employers: [j, ...x.scenario.employers] }, step: 'job-edit', editing: j.id, history: [...x.history, x.step] };
+      return { ...x, scenario: { ...x.scenario, employers: [j, ...x.scenario.employers] }, step: 'job-edit', editing: j.id, draftJob: j.id, history: [...x.history, x.step] };
+    });
+  /** Leave a job you just added without documents: nothing of it is kept. */
+  const cancelDraft = () =>
+    setSt((x) => {
+      const id = x.draftJob;
+      const employers = x.scenario.employers.filter((j) => j.id !== id);
+      const prev = x.history[x.history.length - 1] ?? 'story';
+      const out: AppState = { ...x, draftJob: undefined, step: prev, history: x.history.slice(0, -1), editing: null };
+      return employers.length && id ? rebuild({ ...out, scenario: { ...x.scenario, employers } }, [], rules) : out;
     });
   const removeJob = (id: string) =>
     setSt((x) => {
@@ -385,9 +399,10 @@ export function App() {
               onRemoveDoc={(d) => removeDoc(editing.id, d)}
               onChoose={(f, c) => choose(editing.id, f, c)}
               onReclassify={(d, k) => reclassify(editing.id, d, k)}
+              onCancel={st.draftJob === editing.id ? cancelDraft : undefined}
               onDone={() => {
                 if (openConflicts(editing)) return;
-                setSt((x) => ({ ...x, scenario: { ...x.scenario, employers: orderJobs(x.scenario.employers) } }));
+                setSt((x) => ({ ...x, draftJob: undefined, scenario: { ...x.scenario, employers: orderJobs(x.scenario.employers) } }));
                 if (st.history[st.history.length - 1] === 'upload') go('clarify');
                 else back();
               }}

@@ -7,6 +7,69 @@ import { rs } from '../format';
 const short = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
 import { DateInput, Field, Money, MonthInput, Num, Percent, Segmented, Toggle } from './controls';
 import { StructureEditor } from './Editors';
+import { describeTerms, termsOf } from '../domain/clawback';
+
+type Basis = NonNullable<OneTime['clawbackBasis']>;
+
+/**
+ * When a joining or retention bonus has to be paid back: the period, and whether it's all of it,
+ * the unserved share, or a share by how long you stayed. Read from the letter; edit to match it.
+ */
+export function ClawbackTermsEditor(props: { bonus: OneTime; onChange: (patch: Partial<OneTime>) => void }) {
+  const o = props.bonus;
+  const t = termsOf(o);
+  const basis: Basis | 'none' = t ? t.basis : 'none';
+  const tiers = o.clawbackTiers?.length ? o.clawbackTiers : [{ months: o.clawbackMonths || 12, share: 1 }];
+  const set = (patch: Partial<OneTime>) => props.onChange({ ...patch, clawbackEdited: true });
+  const setTier = (i: number, patch: Partial<{ months: number; share: number }>) => set({ clawbackTiers: tiers.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+  return (
+    <div class="clawback-terms">
+      <Field label={`${o.label}: repayable if you leave early?`} hint={t ? `As per your letter: ${describeTerms(t)}.` : 'Check the letter for a clause on leaving within a year or two.'}>
+        <Segmented<Basis | 'none'>
+          ariaLabel={`${o.label} repayment terms`}
+          value={basis}
+          onChange={(v) =>
+            v === 'none'
+              ? set({ clawbackMonths: undefined, clawbackBasis: undefined, clawbackTiers: undefined })
+              : v === 'tiered'
+                ? set({ clawbackBasis: 'tiered', clawbackTiers: o.clawbackTiers?.length ? o.clawbackTiers : [{ months: o.clawbackMonths || 12, share: 1 }, { months: (o.clawbackMonths || 12) * 2, share: 0.5 }] })
+                : set({ clawbackBasis: v, clawbackMonths: o.clawbackMonths || 12 })
+          }
+          options={[
+            { value: 'none', label: 'No' },
+            { value: 'full', label: 'All of it' },
+            { value: 'prorata', label: 'Pro-rata' },
+            { value: 'tiered', label: 'By years served' },
+          ]}
+        />
+      </Field>
+      {(basis === 'full' || basis === 'prorata') && (
+        <Field label="If you leave within" hint={basis === 'prorata' ? 'You repay the share of this period you did not serve.' : undefined}>
+          <Num value={o.clawbackMonths ?? 0} onChange={(v) => set({ clawbackMonths: v || undefined })} suffix="months" ariaLabel={`${o.label} clawback months`} />
+        </Field>
+      )}
+      {basis === 'tiered' &&
+        tiers.map((x, i) => (
+          <div class="grid2">
+            <Field label={i === 0 ? 'Leave within' : 'Else within'}>
+              <Num value={x.months} onChange={(v) => setTier(i, { months: v })} suffix="months" ariaLabel={`Tier ${i + 1} months`} />
+            </Field>
+            <Field label="Repay">
+              <Percent value={x.share} onChange={(v) => setTier(i, { share: v })} ariaLabel={`Tier ${i + 1} share`} />
+            </Field>
+          </div>
+        ))}
+      {basis === 'tiered' && (
+        <button type="button" class="btn link" onClick={() => set({ clawbackTiers: [...tiers, { months: (tiers[tiers.length - 1]?.months ?? 12) + 12, share: 0.25 }] })}>
+          + Add a step
+        </button>
+      )}
+      {basis !== 'none' && (
+        <Toggle checked={o.clawbackFrom === 'payment'} onChange={(v) => set({ clawbackFrom: v ? 'payment' : undefined })} label="Counted from the date it's paid (not the joining date)" />
+      )}
+    </div>
+  );
+}
 
 /** Hikes during a job: when each applied, when it was first paid, and the new salary. */
 export function HikesEditor(props: { emp: Employment; fy: number; thirty: boolean; onChange: (e: Employment) => void; today: string }) {
@@ -193,10 +256,27 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
       )}
       <Toggle checked={f.gratuityMode === 'none'} onChange={(v) => setF({ gratuityMode: v ? 'none' : 'auto' })} label="My employer doesn't pay gratuity or ex gratia" />
 
+      <h3 class="mt">Bonus clawback</h3>
+      {e.oneTimes
+        .filter((o) => o.amount > 0 && (o.kind === 'joining' || /retention|relocation/i.test(o.label)))
+        .map((o) => (
+          <ClawbackTermsEditor bonus={o} onChange={(patch) => props.onChange({ ...e, oneTimes: e.oneTimes.map((x) => (x === o ? { ...x, ...patch } : x)) })} />
+        ))}
+      {items && items.clawbackLines.map((l) => <p class="note">{l.label}: {l.why}</p>)}
+      {items && !items.clawbackFromTerms && items.clawbackLines.length > 0 && (
+        <p class="note">
+          Using {rs(items.clawback)} {e.docs.some((d) => d.facts?.clawback !== undefined) ? 'from your resignation or F&F papers' : 'that you entered'}; the letter's terms give{' '}
+          {rs(items.clawbackLines.reduce((a, l) => a + l.repaid, 0))}.{' '}
+          <button type="button" class="btn link inline" onClick={() => setF({ clawback: 0, clawbackManual: false })}>
+            Use the letter's terms
+          </button>
+        </p>
+      )}
+
       <h3 class="mt">Other settlement items</h3>
       <div class="grid2">
-        <Field label="Bonus clawback" hint="Joining/relocation bonus you repay.">
-          <Money value={f.clawback} onChange={(v) => setF({ clawback: v })} ariaLabel="Clawback amount" />
+        <Field label="Bonus clawback" hint={items?.clawbackFromTerms ? 'Worked out from the terms above. Type the F&F amount to override.' : 'Joining/relocation bonus you repay.'}>
+          <Money value={items?.clawback ?? f.clawback} onChange={(v) => setF({ clawback: v, clawbackManual: true })} ariaLabel="Clawback amount" />
         </Field>
         <Field label="Penalty / bond" hint="Contract-breach recovery.">
           <Money value={f.penalty ?? 0} onChange={(v) => setF({ penalty: v })} ariaLabel="Penalty amount" />
@@ -223,8 +303,6 @@ export function JoiningEditor(props: { emp: Employment; prev: Employment; fy: nu
   const setBo = (patch: Partial<Buyout>) => props.onChange({ ...e, buyout: { ...bo, ...patch } });
   const joinMonth = monthOf(e.start || props.prev.end || '');
   const f12Month = /^\d{4}-\d{2}$/.test(e.form12B) ? e.form12B : e.form12B === 'first' ? joinMonth : addMonths(joinMonth, 1);
-  const jb = e.oneTimes.find((o) => o.kind === 'joining');
-  const setJb = (patch: Partial<OneTime>) => props.onChange({ ...e, oneTimes: e.oneTimes.map((o) => (o.kind === 'joining' ? { ...o, ...patch } : o)) });
   return (
     <div class="card">
       <h3>Moving from {props.prev.name || 'your previous job'}</h3>
@@ -253,11 +331,7 @@ export function JoiningEditor(props: { emp: Employment; prev: Employment; fy: nu
           </Field>
         </>
       )}
-      {jb && (
-        <Field label="Joining bonus repayable if you leave within" hint={`${rs(jb.amount)} paid in ${monthLong(jb.month)}.`}>
-          <Num value={jb.clawbackMonths ?? 0} onChange={(v) => setJb({ clawbackMonths: v || undefined })} suffix="months" ariaLabel="Joining bonus clawback months" />
-        </Field>
-      )}
+
       <Field label="Form 12B" hint="Gives the new employer your earlier salary and TDS this year, so it deducts the right tax from that month's payroll.">
         <Segmented
           ariaLabel="Will you submit Form 12B"

@@ -8,6 +8,7 @@ import { needsPrevVariable } from './PrevVariable';
 import { exitQuestionFor } from './ExitQuestion';
 import { pfCeilingRiseIn, ptRuleFor } from '../domain/schedule';
 import { monthLong } from '../domain/fy';
+import { needsBuyout, needsNps, needsRelocation, prevNps } from './JoiningQuestions';
 
 export interface Pending {
   /** The job it's about, if any. */
@@ -29,6 +30,9 @@ export function pendingItems(st: AppState, s: Scenario, rules: Rules, openConfli
   s.employers.forEach((e, k) => {
     const name = e.name || `Job ${k + 1}`;
     if (e.totalsOnly) return;
+    if (needsNps(s, k)) out.push({ job: e.id, text: prevNps(s, k) ? `${name}: will you continue employer NPS there?` : `${name}: will it pay employer NPS for you?` });
+    if (needsBuyout(s, k)) out.push({ job: e.id, text: `${name}: will it pay a notice buyout?` });
+    if (needsRelocation(s, k)) out.push({ job: e.id, text: `${name}: any relocation support?` });
     if (k > 0 && !e.form12BConfirmed) out.push({ job: e.id, text: `${name}: will you give it Form 12B (your earlier salary and TDS)?` });
     const rise = pfCeilingRiseIn(e, s.fy, rules);
     if (rise && !e.pfRise) out.push({ job: e.id, text: `${name}: when PF goes up in ${monthLong(rise)}, who pays the employer's extra share?` });

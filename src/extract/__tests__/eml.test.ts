@@ -52,3 +52,17 @@ describe('resignation emails (.eml)', () => {
     expect(emailDate('Tue, 5 Jan 2027 09:00:00 +0530')).toBe('05/01/2027');
   });
 });
+
+describe('files picked without a telling name', () => {
+  const bytes = (s: string) => new TextEncoder().encode(s);
+  it('works out the type from the first bytes', async () => {
+    const { sniff } = await import('../text');
+    const eml = 'Received: from mx.suzlon.com\r\nFrom: HR <hr@suzlon.com>\r\nSubject: Resignation\r\n\r\nBody';
+    expect(sniff(bytes(eml), eml)).toBe('eml');
+    expect(sniff(bytes('%PDF-1.7\n'), '')).toBe('pdf');
+    expect(sniff(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), '')).toBe('image');
+    expect(sniff(new Uint8Array([0x50, 0x4b, 3, 4]), '')).toBe('docx');
+    expect(sniff(bytes('Basic Salary 1,42,500'), 'Basic Salary 1,42,500')).toBe('text');
+    expect(sniff(new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0, 1, 2, 3]), '')).toBeUndefined();
+  });
+});

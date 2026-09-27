@@ -65,13 +65,34 @@ async function docxText(file: Blob): Promise<string> {
   return el.value;
 }
 
-export const ACCEPT =
-  '.pdf,.docx,.txt,.eml,.jpg,.jpeg,.png,.heic,.heif,.webp,image/*,message/rfc822,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-
 const IMAGE = /\.(jpe?g|png|heic|heif|webp|gif|bmp|tiff?)$/;
+
+/** What a file is from its first bytes, for files picked without a telling name or type. */
+export function sniff(head: Uint8Array, start: string): 'pdf' | 'docx' | 'image' | 'eml' | 'text' | undefined {
+  const b = (i: number) => head[i];
+  if (b(0) === 0x25 && b(1) === 0x50 && b(2) === 0x44 && b(3) === 0x46) return 'pdf'; // %PDF
+  if (b(0) === 0x50 && b(1) === 0x4b) return 'docx'; // PK (zip)
+  if ((b(0) === 0xff && b(1) === 0xd8) || (b(0) === 0x89 && b(1) === 0x50) || (b(0) === 0x47 && b(1) === 0x49) || (b(0) === 0x52 && b(1) === 0x49)) return 'image';
+  if (String.fromCharCode(...head.slice(4, 12)).startsWith('ftyphei') || String.fromCharCode(...head.slice(4, 12)).startsWith('ftypmif')) return 'image';
+  if (/^(?:[\w-]+:[^\n]*\r?\n(?:[ \t][^\n]*\r?\n)*){2,}/.test(start) && /^(from|received|return-path|mime-version|subject|date|delivered-to|message-id|x-[\w-]+):/im.test(start)) return 'eml';
+  const printable = [...head].filter((c) => c === 9 || c === 10 || c === 13 || (c >= 32 && c < 127) || c >= 128).length;
+  if (head.length && printable / head.length > 0.95) return 'text';
+  return undefined;
+}
 
 export async function fileToText(file: File, onProgress?: Progress): Promise<{ text: string; ocr: boolean }> {
   const name = file.name.toLowerCase();
+  const known = /\.(pdf|docx|eml|txt)$/.test(name) || IMAGE.test(name) || /^(application\/pdf|image\/|message\/rfc822)/.test(file.type);
+  if (!known) {
+    const head = new Uint8Array(await file.slice(0, 2048).arrayBuffer());
+    const kind = sniff(head, new TextDecoder().decode(head));
+    const as = (ext: string, type: string) => fileToText(new File([file], `${file.name || 'file'}.${ext}`, { type }), onProgress);
+    if (kind === 'pdf') return as('pdf', 'application/pdf');
+    if (kind === 'docx') return as('docx', '');
+    if (kind === 'image') return as('jpg', 'image/jpeg');
+    if (kind === 'eml') return as('eml', 'message/rfc822');
+    if (kind === 'text') return { text: await file.text(), ocr: false };
+  }
   if (file.type === 'application/pdf' || name.endsWith('.pdf')) {
     const text = await pdfText(file, onProgress);
     // Scanned PDFs have no text layer; render page 1 and OCR it.
@@ -83,6 +104,7 @@ export async function fileToText(file: File, onProgress?: Progress): Promise<{ t
   if (name.endsWith('.eml') || file.type === 'message/rfc822') return emlToText(file, onProgress);
   if (file.type.startsWith('text/') || name.endsWith('.txt')) return { text: await file.text(), ocr: false };
   if (file.type.startsWith('image/') || IMAGE.test(name)) return { text: await ocrImage(file, onProgress), ocr: true };
+  if (name.endsWith('.msg')) throw new Error("Outlook .msg files can't be read. Save the email as .eml or PDF (or forward it to yourself and save it), then add it.");
   throw new Error('Unsupported file. Please upload a PDF, Word file, email (.eml) or a photo (JPG, PNG).');
 }
 

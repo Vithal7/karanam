@@ -1,6 +1,6 @@
 import { useRef, useState } from 'preact/hooks';
 import { parseText, type Extracted } from '../extract/parse';
-import { ACCEPT, fileToText } from '../extract/text';
+import { fileToText } from '../extract/text';
 
 export interface ReadFile {
   name: string;
@@ -17,6 +17,7 @@ export function Uploader(props: {
   buttonLabel?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const camera = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<{ status: string; p: number; file: string; i: number; n: number } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [drag, setDrag] = useState(false);
@@ -54,6 +55,7 @@ export function Uploader(props: {
     setBusy(null);
     setErrors(errs);
     if (input.current) input.current.value = '';
+    if (camera.current) camera.current.value = '';
     if (read.length) props.onFiles(read);
   }
 
@@ -94,10 +96,18 @@ export function Uploader(props: {
               </svg>
             )}
             {/* A real label around the input: phones and in-app browsers often ignore input.click(). */}
-            <label class={`btn file-btn ${props.compact ? '' : 'primary'}`}>
-              {props.buttonLabel ?? 'Choose files or take a photo'}
-              <input ref={input} class="visually-hidden" type="file" accept={ACCEPT} multiple onChange={(e) => handle((e.target as HTMLInputElement).files)} />
-            </label>
+            {/* No accept filter: phone pickers grey out types they don't recognise (.eml on iOS and
+                Android), so any file can be picked and its type is worked out after. */}
+            <div class="file-btns">
+              <label class={`btn file-btn ${props.compact ? '' : 'primary'}`}>
+                {props.buttonLabel ?? 'Choose files'}
+                <input ref={input} class="visually-hidden" type="file" multiple onChange={(e) => handle((e.target as HTMLInputElement).files)} />
+              </label>
+              <label class="btn file-btn">
+                Take a photo
+                <input ref={camera} class="visually-hidden" type="file" accept="image/*" capture="environment" onChange={(e) => handle((e.target as HTMLInputElement).files)} />
+              </label>
+            </div>
             {!props.compact && (
               <p class="muted small">
                 Select several at once: offer letters (old and new), appraisal letters, payslips, your resignation email, the F&F slip. PDF, Word, emails (.eml) or photos (JPG, PNG). They're read on this device and never uploaded.

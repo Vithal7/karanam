@@ -1543,3 +1543,4 @@ select.kind-select {
 .stmt-row.minus { color: var(--muted); }
 .stmt-row.total { border-top: 1px solid var(--grid); margin-top: 4px; padding-top: 6px; font-weight: 700; }
 .stmt-foot { margin: 6px 0 0; }
+.file-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }

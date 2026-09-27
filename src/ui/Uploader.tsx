@@ -19,6 +19,20 @@ export function Uploader(props: {
   const [busy, setBusy] = useState<{ status: string; p: number; file: string; i: number; n: number } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [drag, setDrag] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState('');
+
+  function readPasted() {
+    const x = parseText(pasted);
+    if (!Object.keys(x.components).length && !x.doj) {
+      setErrors(["Couldn't find any salary figures in that text. Check you copied the salary table, or type the numbers in."]);
+      return;
+    }
+    setErrors([]);
+    setPasting(false);
+    setPasted('');
+    props.onFiles([{ name: 'Pasted text', x }]);
+  }
 
   async function handle(list: FileList | null | undefined) {
     const files = list ? Array.from(list) : [];
@@ -93,6 +107,33 @@ export function Uploader(props: {
             <p>{e}</p>
           ))}
         </div>
+      )}
+      {pasting ? (
+        <div class="paste">
+          <label class="field-label" for="paste-text">
+            Paste the text of your letter or payslip
+          </label>
+          <textarea
+            id="paste-text"
+            class="text"
+            rows={8}
+            placeholder={'Open the letter, select all, copy, and paste it here.\ne.g. Basic Salary  1,42,500  17,10,000'}
+            value={pasted}
+            onInput={(e) => setPasted((e.target as HTMLTextAreaElement).value)}
+          />
+          <div class="paste-actions">
+            <button type="button" class="btn primary" disabled={!pasted.trim()} onClick={readPasted}>
+              Read this text
+            </button>
+            <button type="button" class="btn ghost" onClick={() => setPasting(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" class="btn link" onClick={() => setPasting(true)} disabled={!!busy}>
+          Can't pick a file? Paste the letter's text instead
+        </button>
       )}
       {props.onManual && (
         <button type="button" class="btn link" onClick={props.onManual} disabled={!!busy}>

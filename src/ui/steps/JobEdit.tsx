@@ -1,3 +1,4 @@
+import { useState } from 'preact/hooks';
 import { fyStart, maxDate, monthOf } from '../../domain/fy';
 import type { DocKind, Employment, OneTime, Scenario } from '../../domain/types';
 import type { Choices } from '../../extract/merge';
@@ -7,7 +8,7 @@ import { DateInput, Field, Money, MonthInput, Segmented, Warnings } from '../con
 import { Continue } from '../Continue';
 import { DocsPanel } from '../Docs';
 import { OneTimeEditor, StructureEditor } from '../Editors';
-import { ClawbackTermsEditor, ExitEditor, HikesEditor, JoiningEditor, VariableEditor } from '../JobSections';
+import { ClawbackTermsEditor, ExitEditor, HikesEditor, JoiningEditor, LopEditor, VariableEditor } from '../JobSections';
 import { ReconcileCard } from '../Reconcile';
 import { TdsMonths } from '../TdsMonths';
 import { LocationCard } from '../Location';
@@ -31,6 +32,7 @@ export function JobEditStep(props: {
   onRemoveDoc: (id: string) => void;
   onChoose: (field: string, choice: string) => void;
   onReclassify: (docId: string, kind: DocKind) => void;
+  onEditText: (docId: string, text: string) => void;
   onDone: () => void;
   /** Set for a job you just added without documents: drop it and go back. */
   onCancel?: () => void;
@@ -42,6 +44,7 @@ export function JobEditStep(props: {
   const isNew = index === s.employers.length - 1;
   const thirty = s.settings.thirtyDayMonth;
   const set = (patch: Partial<Employment>) => props.onChange({ ...e, ...patch });
+  const [leaving, setLeaving] = useState(false);
   const joining = e.oneTimes.find((o) => o.kind === 'joining');
   const setJoining = (patch: Partial<OneTime> | null) => {
     const rest = e.oneTimes.filter((o) => o.kind !== 'joining');
@@ -108,7 +111,7 @@ export function JobEditStep(props: {
         </div>
       ) : (
         <>
-          <DocsPanel emp={e} choices={props.choices} onAdd={props.onAddFiles} onRemove={props.onRemoveDoc} onChoose={props.onChoose} onReclassify={props.onReclassify} />
+          <DocsPanel emp={e} choices={props.choices} onAdd={props.onAddFiles} onRemove={props.onRemoveDoc} onChoose={props.onChoose} onReclassify={props.onReclassify} onEditText={props.onEditText} />
           <Warnings items={props.warnings} />
           <h2 class="section">Salary {e.revisions.length ? 'when you joined' : ''}</h2>
           <StructureEditor emp={e} value={e.structure} marks={props.marks} sources={props.sources} month={monthOf(maxDate(e.start || fyStart(s.fy), fyStart(s.fy)))} onChange={(x) => set({ structure: x })} />
@@ -125,6 +128,7 @@ export function JobEditStep(props: {
           />
           <LocationCard emp={e} rules={rules} onChange={props.onChange} />
           <HikesEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} today={s.today} />
+          <LopEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} />
 
           {(isNew || index > 0) && (
             <div class="card">
@@ -166,6 +170,22 @@ export function JobEditStep(props: {
               </div>
               <ExitEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} showJoiningBonus={index === 0} />
             </>
+          )}
+        </>
+      )}
+
+      {isNew && !e.totalsOnly && e.start && e.start <= s.today && (
+        <>
+          {!e.end && !e.resignedOn && !leaving ? (
+            <div class="card">
+              <h3>Leaving {e.name || 'this job'}?</h3>
+              <p class="muted small">Resigned, or planning to, without a new job lined up? Add your dates for the last salary, notice recovery and F&F.</p>
+              <button type="button" class="btn small" onClick={() => setLeaving(true)}>
+                I'm leaving this job
+              </button>
+            </div>
+          ) : (
+            <ExitEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} showJoiningBonus={false} />
           )}
         </>
       )}

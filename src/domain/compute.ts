@@ -197,6 +197,7 @@ export function gratuityFor(emp: Employment, basic: number, f: NonNullable<Emplo
     const amount = Math.round((15 / 26) * basic * whole);
     return { ...none, gratuity: amount, gratuityKind: 'gratuity' as const, gratuityExempt: Math.min(amount, GRATUITY_EXEMPT_CAP), gratuityLabel: `15/26 × basic ${inr(basic)} × ${whole} years` };
   }
+  if (!f.exGratia) return { ...none, gratuityLabel: 'under 5 years of service, so no gratuity; ex gratia is counted only if your employer pays it' };
   const periods = exGratiaPeriods(emp);
   if (!periods.length) return { ...none, gratuityLabel: 'under 5 years of service and no gratuity rate in your CTC' };
   const amount = Math.round(periods.reduce((a, p) => a + p.amount, 0));
@@ -233,7 +234,7 @@ export function form12BMonth(s: Scenario, k: number): string | null {
 export function validateEmployers(s: Scenario): string[] {
   const errs: string[] = [];
   const es = s.employers;
-  if (es.length === 0) errs.push('Add your offer first.');
+  if (es.length === 0) errs.push('Add a job first: a letter, a payslip, or the numbers you know.');
   if (es.length > MAX_EMPLOYERS) errs.push(`At most ${MAX_EMPLOYERS} jobs in one year.`);
   es.forEach((e, i) => {
     const name = e.name || `Job ${i + 1}`;

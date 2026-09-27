@@ -133,8 +133,13 @@ export interface FnF {
   penalty?: number;
   /** Gratuity or ex gratia amount from the F&F slip (or entered); overrides the calculation. */
   gratuity?: number;
-  /** 'auto' (default): gratuity at 5+ years, ex gratia from the CTC's yearly gratuity rate below that; 'none': not paid. */
+  /** 'auto' (default): gratuity at 5+ years, ex gratia below that if `exGratia`; 'none': not paid. */
   gratuityMode?: 'auto' | 'none';
+  /**
+   * Under 5 years' service: whether the employer pays ex gratia in lieu of gratuity (at the CTC's
+   * yearly gratuity rate). Most don't, so it's not counted until you say it is.
+   */
+  exGratia?: boolean;
   /** Month the F&F is paid; empty = with the last salary. */
   payMonth?: string;
   /** @deprecated v2: use the next job's `buyout`. */
@@ -251,6 +256,8 @@ export interface DocRecord {
   fields: Record<string, number>;
   doj?: string;
   employer?: string;
+  /** The company was guessed from an email address, not named in the file: a hint only. */
+  employerWeak?: boolean;
   ytdTds?: number;
   facts?: Facts;
   /** The file's text, so it can be re-read if its type is corrected. */
@@ -298,13 +305,17 @@ export interface Employment {
   form12BConfirmed?: boolean;
   /** You confirmed the leave balance at exit (0 days is a real answer then). */
   leaveConfirmed?: boolean;
+  /** Unpaid days (loss of pay, unpaid leave, sabbatical) by month ("YYYY-MM" -> days). */
+  lopDays?: Record<string, number>;
+  /** The letter gave only a CTC: the breakup is a typical split until you check it. */
+  splitGuessed?: boolean;
   /** For every job after the first: notice buyout it reimburses. */
   buyout?: Buyout;
   /**
    * Joining questions you've answered for this job, so they aren't asked again: employer NPS,
    * notice buyout, relocation.
    */
-  asked?: { nps?: boolean; buyout?: boolean; relocation?: boolean; notice?: boolean };
+  asked?: { nps?: boolean; buyout?: boolean; relocation?: boolean; notice?: boolean; split?: boolean; payChanged?: boolean; exGratia?: boolean };
   /**
    * Where you work: the state decides professional tax. `source`: read from a letter's work
    * location (doc), guessed from a city mentioned in it (guess), or given by you (user).

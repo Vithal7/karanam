@@ -17,10 +17,11 @@ import { Money, Percent } from '../controls';
 import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
 import { docHints } from '../docHints';
+import { Glossary } from '../Glossary';
 import type { Pending } from '../pending';
 import { LocationQuestion } from '../Location';
 import { BuyoutQuestion, NpsQuestion, RelocationQuestion, needsBuyout, needsNps, needsRelocation } from '../JoiningQuestions';
-import { EarlierIncomeQuestion, Form12BQuestion, JoinDateQuestion, LeaveQuestion, NoticeQuestion, PfRiseQuestion, needsNotice } from '../Questions';
+import { EarlierIncomeQuestion, ExGratiaQuestion, Form12BQuestion, JoinDateQuestion, LeaveQuestion, NoticeQuestion, PayChangedQuestion, PfRiseQuestion, SplitQuestion, needsExGratia, needsNotice, staleSalary } from '../Questions';
 import { pfCeilingRiseIn } from '../../domain/schedule';
 import { fyStart } from '../../domain/fy';
 
@@ -215,6 +216,11 @@ export function StoryStep(props: {
                 )}
                 {clarify && !e.totalsOnly && e.startSource === 'approx' && <JoinDateQuestion emp={e} onChange={props.onChangeJob} />}
                 {clarify && k > 0 && !e.totalsOnly && !e.form12BConfirmed && <Form12BQuestion emp={e} prevName={s.employers.slice(0, k).map((x) => x.name).join(' and ')} onChange={props.onChangeJob} />}
+                {clarify && e.splitGuessed && !e.asked?.split && <SplitQuestion emp={e} onChange={props.onChangeJob} onEdit={() => props.onEdit(e.id)} />}
+                {clarify && staleSalary(e, s.fy, s.today) && (
+                  <PayChangedQuestion emp={e} since={staleSalary(e, s.fy, s.today)!} onChange={props.onChangeJob} onAddFiles={(f) => props.onAddFilesTo(e.id, f)} onEdit={() => props.onEdit(e.id)} />
+                )}
+                {clarify && needsExGratia(e, k < n - 1 || !!e.end) && <ExGratiaQuestion emp={e} fy={s.fy} thirty={s.settings.thirtyDayMonth} onChange={props.onChangeJob} />}
                 {clarify && !exitQuestionFor(e, k, n) && needsNotice(e) && <NoticeQuestion emp={e} fy={s.fy} thirty={s.settings.thirtyDayMonth} onChange={props.onChangeJob} />}
                 {clarify && needsBuyout(s, k) && <BuyoutQuestion s={s} k={k} onChange={props.onChangeJob} />}
                 {clarify && needsNps(s, k) && <NpsQuestion s={s} k={k} rules={rules} onChange={props.onChangeJob} />}
@@ -261,7 +267,7 @@ export function StoryStep(props: {
                     Check the numbers
                   </button>
                   {n > 1 && (
-                    <button type="button" class="btn small ghost" onClick={() => props.onRemove(e.id)}>
+                    <button type="button" class="btn small ghost" onClick={() => confirm(`Remove ${e.name || 'this job'} and its ${e.docs.length} file${e.docs.length === 1 ? '' : 's'}?`) && props.onRemove(e.id)}>
                       Remove
                     </button>
                   )}
@@ -281,6 +287,8 @@ export function StoryStep(props: {
         <Timeline events={props.events} today={s.today} jobs={n} />
       </div>
       )}
+
+      {clarify && <Glossary />}
 
       <div class="card">
         <h3>Missing something?</h3>

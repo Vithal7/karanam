@@ -3,6 +3,8 @@ import { useState } from 'preact/hooks';
 import { addMonths, monthLong, monthOf } from '../domain/fy';
 import type { Employment } from '../domain/types';
 import { Choices, DateInput, Field, Money, MonthInput, Num } from './controls';
+import { fyStart } from '../domain/fy';
+import { Uploader, type ReadFile } from './Uploader';
 import { daysBetween } from '../domain/fy';
 import { noticeShortfall } from '../domain/schedule';
 import { rs } from '../format';
@@ -148,7 +150,7 @@ export function LeaveQuestion(props: { emp: Employment; onChange: (e: Employment
   return (
     <div class="callout exit-q">
       <p>
-        <strong>Leave balance when you leave {e.name}?</strong> Unused earned leave is usually paid out in the F&F, and part of it can be tax-free.
+        <strong>Leave balance when you leave {e.name}?</strong> Unused earned leave is usually paid out in your full & final settlement (F&F: the last payout when you leave), and part of it can be tax-free.
       </p>
       <div class="grid2">
         <Field label="Leave days paid out">
@@ -188,8 +190,8 @@ export function NoticeQuestion(props: { emp: Employment; fy: number; thirty: boo
   return (
     <div class="callout ask exit-q">
       <p>
-        <strong>What's your notice period at {e.name}?</strong> You resigned on {long(e.resignedOn!)} and leave on {long(e.end)}, so you serve {served} days. Any days short are recovered in
-        your F&F, and a new employer's notice buyout pays them back.
+        <strong>What's your notice period at {e.name}?</strong> You resigned on {long(e.resignedOn!)} and leave on {long(e.end)}, so you serve {served} days. Any days short are recovered from
+        your full & final settlement (F&F), and a new employer's notice buyout pays them back.
       </p>
       <div class="grid2">
         <Field label="Notice period">
@@ -214,6 +216,108 @@ export function NoticeQuestion(props: { emp: Employment; fy: number; thirty: boo
       <button type="button" class="btn link inline" onClick={() => props.onChange({ ...e, asked: { ...e.asked, notice: true } })}>
         I serve my full notice
       </button>
+    </div>
+  );
+}
+
+const serviceYears = (e: Employment) => (e.start && e.end ? (Date.parse(e.end) - Date.parse(e.start)) / (365.25 * 86_400_000) : 0);
+
+/** Leaving before 5 years with a gratuity rate in the CTC: is ex gratia paid in its place? */
+export const needsExGratia = (e: Employment, leaving: boolean) =>
+  leaving &&
+  !e.totalsOnly &&
+  !!e.fnf &&
+  e.fnf.gratuity === undefined &&
+  e.fnf.gratuityMode !== 'none' &&
+  e.fnf.exGratia === undefined &&
+  serviceYears(e) > 0 &&
+  serviceYears(e) < 4 + 240 / 365 &&
+  !!(e.ctcParts?.gratuity || e.revisions.some((r) => r.gratuity));
+
+export function ExGratiaQuestion(props: { emp: Employment; fy: number; thirty: boolean; onChange: (e: Employment) => void }) {
+  const e = props.emp;
+  const f = fnfItems({ ...e, fnf: { ...e.fnf!, exGratia: true } }, props.fy, props.thirty);
+  const set = (v: boolean) => props.onChange({ ...e, fnf: { ...e.fnf!, exGratia: v }, asked: { ...e.asked, exGratia: true } });
+  return (
+    <div class="callout ask exit-q">
+      <p>
+        <strong>Does {e.name} pay ex gratia when you leave?</strong> You'll have served {serviceYears(e).toFixed(1)} years, under the 5 needed for gratuity. Some employers pay the gratuity
+        built into your CTC anyway, as "ex gratia" (taxed as salary); most don't.
+      </p>
+      <Choices<'yes' | 'no'>
+        value={e.fnf?.exGratia === undefined ? null : e.fnf.exGratia ? 'yes' : 'no'}
+        onChange={(v) => set(v === 'yes')}
+        options={[
+          { value: 'no', label: 'No' },
+          { value: 'yes', label: 'Yes, it’s paid', sub: f?.gratuity ? `About ${rs(f.gratuity)}` : undefined },
+        ]}
+      />
+    </div>
+  );
+}
+
+/** The newest file with your salary at this job is from an earlier financial year. */
+export function staleSalary(e: Employment, fy: number, today: string): string | undefined {
+  if (e.totalsOnly || e.asked?.payChanged || e.revisions.length || !e.start || e.start > today) return undefined;
+  if (e.end && e.end < fyStart(fy)) return undefined;
+  const newest = e.docs
+    .filter((d) => d.kind === 'offer' || d.kind === 'appraisal' || d.kind === 'payslip')
+    .map((d) => d.docDate ?? d.doj ?? '')
+    .filter(Boolean)
+    .sort()
+    .pop();
+  return newest && newest < fyStart(fy) ? newest : undefined;
+}
+
+/** Salary from an old letter: has it changed since? A hike changes every month after it. */
+export function PayChangedQuestion(props: { emp: Employment; since: string; onChange: (e: Employment) => void; onAddFiles: (f: ReadFile[]) => void; onEdit: () => void }) {
+  const e = props.emp;
+  const [ans, setAns] = useState<'yes' | null>(null);
+  return (
+    <div class="callout ask exit-q">
+      <p>
+        <strong>Has your pay at {e.name} changed since {new Date(`${props.since}T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}?</strong> Your salary is taken from a
+        file of that date. A hike since then changes every month's pay and tax.
+      </p>
+      <Choices<'no' | 'yes'>
+        value={ans}
+        onChange={(v) => (v === 'no' ? props.onChange({ ...e, asked: { ...e.asked, payChanged: true } }) : setAns('yes'))}
+        options={[
+          { value: 'no', label: 'No, same pay' },
+          { value: 'yes', label: 'Yes, I’ve had a hike' },
+        ]}
+      />
+      {ans === 'yes' && (
+        <>
+          <p class="muted small">Add your latest increment letter or a recent payslip, or enter the new salary yourself.</p>
+          <Uploader compact buttonLabel="+ Add the letter or payslip" onFiles={props.onAddFiles} />
+          <button type="button" class="btn link inline" onClick={props.onEdit}>
+            Enter the new salary instead
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Only a CTC in the letter: show the typical split we used and ask you to check it. */
+export function SplitQuestion(props: { emp: Employment; onChange: (e: Employment) => void; onEdit: () => void }) {
+  const e = props.emp;
+  const st = e.structure;
+  return (
+    <div class="callout ask exit-q">
+      <p>
+        <strong>Check the salary split at {e.name || 'this job'}.</strong> Your {e.ctc ? `${rs(e.ctc)} CTC` : 'letter'} had no breakup, so we used a typical one: basic {rs(st.basic)}, HRA{' '}
+        {rs(st.hra)} and special allowance {rs(st.special)} a month, after employer PF and gratuity. Your payslip or the letter's annexure has the real one.
+      </p>
+      <div class="tl-actions">
+        <button type="button" class="btn small primary" onClick={() => props.onChange({ ...e, asked: { ...e.asked, split: true } })}>
+          Looks right
+        </button>
+        <button type="button" class="btn small" onClick={props.onEdit}>
+          Change it
+        </button>
+      </div>
     </div>
   );
 }

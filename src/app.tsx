@@ -8,6 +8,7 @@ import { applyEvents } from './extract/events';
 import { assignDocs, blankJob, docFromText, docsFromText, orderJobs } from './extract/intake';
 import { applyDocs, mergeDocs, baseDocs } from './extract/merge';
 import { isNote } from './extract/note';
+import { parseText } from './extract/parse';
 import { type Rules } from './rules';
 import { activeRules, watchRules } from './rules/update';
 import {
@@ -26,6 +27,7 @@ import { Toggle } from './ui/controls';
 import { Continue } from './ui/Continue';
 import { OneTimeEditor } from './ui/Editors';
 import { Results } from './ui/Results';
+import { CompareOffers, withOffer } from './ui/Compare';
 import { DownloadMenu } from './ui/Download';
 import { pendingItems } from './ui/pending';
 import { Stages } from './ui/Stages';
@@ -152,6 +154,7 @@ export function App() {
       const read = files.map((f) => ({ f, ...docsFromText(f.text, f.name) }));
       const docs = read.flatMap((r) => r.docs);
       const texts = Object.fromEntries(read.flatMap((r) => r.docs.map((d) => [d.id, r.f.text])));
+      const alts = read.flatMap((r) => r.alternatives).map((d) => offerJob(d, x.scenario.fy));
       const { employers, unassigned, changed, aside } = assignDocs(x.scenario.employers, docs, x.scenario.fy, texts);
       const warnings = { ...x.warnings };
       for (const r of read) {
@@ -160,7 +163,31 @@ export function App() {
           if (job) warnings[job.id] = [...(warnings[job.id] ?? []), ...(r.warnings ?? r.f.x.warnings).map((w) => `${r.f.name}: ${w}`)];
         }
       }
-      return rebuild({ ...x, scenario: { ...x.scenario, employers }, inbox: [...x.inbox, ...unassigned], aside: [...x.aside, ...aside], warnings, timelineOk: false }, changed, rules);
+      return rebuild({ ...x, scenario: { ...x.scenario, employers }, inbox: [...x.inbox, ...unassigned], aside: [...x.aside, ...aside], warnings, timelineOk: false, alternatives: [...(x.alternatives ?? []), ...alts] }, changed, rules);
+    });
+
+  /** An offer you're weighing, built like a job from its letter or note, but kept off the timeline. */
+  const offerJob = (d: DocRecord, fy: number): Employment => {
+    const j: Employment = { ...blankJob(d.employer || 'Other offer', d.doj ?? fyStart(fy)), docs: [d] };
+    return applyEvents(applyDocs(j, {}, rules).emp, rules, monthOf(fyStart(fy))).emp;
+  };
+  const addAlternatives = (files: ReadFile[]) =>
+    setSt((x) => {
+      const offers = files.flatMap((f) => {
+        const r = docsFromText(f.text, f.name);
+        return [...r.docs.filter((d) => d.kind === 'offer'), ...r.alternatives];
+      });
+      return { ...x, alternatives: [...(x.alternatives ?? []), ...offers.map((d) => offerJob(d, x.scenario.fy))] };
+    });
+  /** Swap: the other offer goes into your timeline; the one there becomes the alternative. */
+  const takeAlternative = (id: string) =>
+    setSt((x) => {
+      const alt = x.alternatives?.find((a) => a.id === id);
+      if (!alt) return x;
+      const cur = x.scenario.employers[x.scenario.employers.length - 1];
+      const next = withOffer(x.scenario, alt).employers;
+      const out = { ...x, alternatives: [...(x.alternatives ?? []).filter((a) => a.id !== id), cur], scenario: { ...x.scenario, employers: next } };
+      return rebuild(out, [alt.id], rules);
     });
 
   const assign = (docId: string, target: string) =>
@@ -204,6 +231,25 @@ export function App() {
       );
       return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [jobId], rules);
     });
+  /** You corrected a file's text: read it again. A note may speak for two jobs, so it's re-sorted. */
+  const editText = (jobId: string, docId: string, text: string) => {
+    const doc = st.scenario.employers.find((j) => j.id === jobId)?.docs.find((d) => d.id === docId);
+    if (!doc) return;
+    if (isNote(text) || isNote(doc.text ?? '')) {
+      const old = doc.text;
+      const name = doc.name.replace(/\s*\(.*\)$/, '');
+      setSt((x) => {
+        const employers = x.scenario.employers.map((j) => ({ ...j, docs: j.docs.filter((d) => d.id !== docId && !(old && d.text === old)) }));
+        return rebuild({ ...x, scenario: { ...x.scenario, employers }, alternatives: (x.alternatives ?? []).filter((a) => !a.docs.some((d) => old && d.text === old)) }, employers.map((j) => j.id), rules);
+      });
+      ingest([{ name, text, x: parseText(text) }]);
+      return;
+    }
+    setSt((x) => {
+      const employers = x.scenario.employers.map((j) => (j.id === jobId ? { ...j, docs: j.docs.map((d) => (d.id === docId ? docFromText(text, d.name, d.id) : d)) } : j));
+      return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [jobId], rules);
+    });
+  };
   const answerHike = (jobId: string, docId: string, facts: Partial<Facts>) =>
     setSt((x) => {
       const employers = x.scenario.employers.map((j) =>
@@ -332,13 +378,16 @@ export function App() {
               </p>
               <ul class="doc-list">
                 <li>
-                  <strong>New offer letter</strong> for the job you're joining
+                  <strong>Your job:</strong> appointment letter (even an old one), your latest increment letter, a payslip from this year
                 </li>
                 <li>
-                  <strong>Current job:</strong> offer letter (even an old one), appraisal letters, recent payslip
+                  <strong>Changing jobs?</strong> The new offer letter
                 </li>
                 <li>
-                  <strong>Leaving?</strong> Resignation acceptance email, F&F slip
+                  <strong>Leaving?</strong> Your resignation acceptance email, and the full & final settlement (F&F) slip once you have it
+                </li>
+                <li>
+                  <strong>No documents?</strong> Paste or type what you know, like "CTC 18 LPA, joined June 2024"
                 </li>
               </ul>
               <Uploader
@@ -410,6 +459,7 @@ export function App() {
               onRemoveDoc={(d) => removeDoc(editing.id, d)}
               onChoose={(f, c) => choose(editing.id, f, c)}
               onReclassify={(d, k) => reclassify(editing.id, d, k)}
+              onEditText={(d, t) => editText(editing.id, d, t)}
               onCancel={st.draftJob === editing.id ? cancelDraft : undefined}
               onDone={() => {
                 if (openConflicts(editing)) return;
@@ -452,6 +502,14 @@ export function App() {
                 showNextFy={st.showNextFy}
                 setShowNextFy={(v) => update({ showNextFy: v })}
                 onHike={(v) => update({ scenario: { ...s, settings: { ...s.settings, nextFyHike: v } } })}
+              />
+              <CompareOffers
+                s={effective}
+                rules={rules}
+                alternatives={st.alternatives ?? []}
+                onAdd={addAlternatives}
+                onRemove={(id) => update({ alternatives: (st.alternatives ?? []).filter((a) => a.id !== id) })}
+                onTake={takeAlternative}
               />
               <div class="actions">
                 <button type="button" class="btn" onClick={() => go('story')}>

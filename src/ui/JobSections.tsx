@@ -165,7 +165,7 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
         <Field label="Leave days paid out">
           <Num value={f.leaveDays} onChange={(v) => setF({ leaveDays: v })} suffix="days" ariaLabel="Leave days" />
         </Field>
-        <Field label="Amount on F&F slip" hint="Leave empty to calculate.">
+        <Field label="Amount on your F&F (settlement) slip" hint="Leave empty to calculate.">
           <Money value={f.leaveAmount ?? 0} onChange={(v) => setF({ leaveAmount: v || undefined })} ariaLabel="Leave encashment on slip" />
         </Field>
       </div>
@@ -197,7 +197,7 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
         <Field label="Shortfall recovered" hint="Notice days you won't serve.">
           <Num value={f.noticeDaysRecovered} onChange={(v) => setF({ noticeDaysRecovered: v })} suffix="days" ariaLabel="Notice days recovered" />
         </Field>
-        <Field label="Amount on F&F slip" hint="Leave empty to calculate.">
+        <Field label="Amount on your F&F (settlement) slip" hint="Leave empty to calculate.">
           <Money value={f.noticeAmount ?? 0} onChange={(v) => setF({ noticeAmount: v || undefined })} ariaLabel="Notice recovery on slip" />
         </Field>
       </div>
@@ -254,7 +254,11 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
           ))}
         </div>
       )}
-      <Toggle checked={f.gratuityMode === 'none'} onChange={(v) => setF({ gratuityMode: v ? 'none' : 'auto' })} label="My employer doesn't pay gratuity or ex gratia" />
+      {items && items.serviceYears < 4 + 240 / 365 ? (
+        <Toggle checked={!!f.exGratia && f.gratuityMode !== 'none'} onChange={(v) => props.onChange({ ...e, fnf: { ...f, exGratia: v, gratuityMode: 'auto' }, asked: { ...e.asked, exGratia: true } })} label="My employer pays ex gratia in lieu of gratuity (under 5 years)" />
+      ) : (
+        <Toggle checked={f.gratuityMode === 'none'} onChange={(v) => setF({ gratuityMode: v ? 'none' : 'auto' })} label="My employer doesn't pay gratuity" />
+      )}
 
       <h3 class="mt">Bonus clawback</h3>
       {e.oneTimes
@@ -395,5 +399,37 @@ export function VariableEditor(props: { emp: Employment; onChange: (e: Employmen
         </>
       )}
     </>
+  );
+}
+
+/** Optional: days you weren't paid for (loss of pay, unpaid leave, a sabbatical), month by month. */
+export function LopEditor(props: { emp: Employment; fy: number; thirty: boolean; onChange: (e: Employment) => void }) {
+  const e = props.emp;
+  const start = maxDate(e.start || fyStart(props.fy), fyStart(props.fy));
+  const months: string[] = [];
+  for (let m = monthOf(start); m <= monthOf(e.end || `${props.fy + 1}-03-31`) && m <= `${props.fy + 1}-03`; m = addMonths(m, 1)) months.push(m);
+  const lop = e.lopDays ?? {};
+  const total = Object.values(lop).reduce((a, d) => a + d, 0);
+  return (
+    <details class="card advanced" open={total > 0}>
+      <summary>Unpaid days (optional){total ? ` · ${total} day${total === 1 ? '' : 's'}` : ''}</summary>
+      <p class="muted small">Loss of pay, unpaid leave or a sabbatical. Your payslip shows them as LOP days; that month's salary is cut by the same share.</p>
+      <div class="lop-grid">
+        {months.map((m) => (
+          <Field label={monthLong(m)}>
+            <Num
+              value={lop[m] ?? 0}
+              onChange={(v) => {
+                const next = { ...lop, [m]: v };
+                if (!v) delete next[m];
+                props.onChange({ ...e, lopDays: Object.keys(next).length ? next : undefined });
+              }}
+              suffix="days"
+              ariaLabel={`Unpaid days in ${monthLong(m)}`}
+            />
+          </Field>
+        ))}
+      </div>
+    </details>
   );
 }

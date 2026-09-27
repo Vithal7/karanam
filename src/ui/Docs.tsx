@@ -3,6 +3,7 @@ import type { DocKind, DocRecord, Employment } from '../domain/types';
 import { DOC_KIND_LABEL, DOC_KIND_SHORT } from './docKinds';
 import { baseDocs, fieldLabel, mergeDocs, type Choices } from '../extract/merge';
 import { rs } from '../format';
+import { useState } from 'preact/hooks';
 import { Uploader, type ReadFile } from './Uploader';
 
 const when = (d?: string) => (d ? monthLong(monthOf(d)) : 'no date found');
@@ -32,8 +33,11 @@ export function DocsPanel(props: {
   onRemove: (docId: string) => void;
   onChoose: (field: string, choice: string) => void;
   onReclassify?: (docId: string, kind: DocKind) => void;
+  /** Correct the text a file was read from (a pasted note, or a misread scan) and read it again. */
+  onEditText?: (docId: string, text: string) => void;
 }) {
   const { emp, choices } = props;
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const { conflicts } = mergeDocs(baseDocs(emp.docs));
   return (
     <>
@@ -62,9 +66,40 @@ export function DocsPanel(props: {
                 ) : (
                   <span class="file-kind">{DOC_KIND_SHORT[d.kind]}</span>
                 )}
-                <button type="button" class="btn icon" aria-label={`Remove ${d.name}`} onClick={() => props.onRemove(d.id)}>
+                <button
+                  type="button"
+                  class="btn icon"
+                  aria-label={`Remove ${d.name}`}
+                  onClick={() => confirm(`Remove ${d.name}? Its figures will no longer be used for ${emp.name || 'this job'}.`) && props.onRemove(d.id)}
+                >
                   ×
                 </button>
+                {props.onEditText && d.text && editing?.id !== d.id && (
+                  <button type="button" class="btn link inline small" onClick={() => setEditing({ id: d.id, text: d.text! })}>
+                    Edit text
+                  </button>
+                )}
+                {editing?.id === d.id && (
+                  <div class="paste edit-text">
+                    <textarea class="text" rows={8} aria-label={`Text of ${d.name}`} value={editing.text} onInput={(ev) => setEditing({ id: d.id, text: (ev.target as HTMLTextAreaElement).value })} />
+                    <div class="paste-actions">
+                      <button
+                        type="button"
+                        class="btn primary small"
+                        disabled={editing.text.trim().length < 20}
+                        onClick={() => {
+                          props.onEditText!(d.id, editing.text);
+                          setEditing(null);
+                        }}
+                      >
+                        Read it again
+                      </button>
+                      <button type="button" class="btn ghost small" onClick={() => setEditing(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

@@ -15,11 +15,11 @@
       "url": "https://incometaxindia.gov.in"
     },
     {
-      "title": "EPF wage ceiling ₹25,000 from 17 Sep 2026 (entered from user report; to be confirmed against the EPFO notification by the monthly rules check)",
-      "url": "https://www.epfindia.gov.in"
+      "title": "EPF wage ceiling raised from ₹15,000 to ₹25,000 a month from 17 Sep 2026: Ministry of Labour and Employment, Gazette Notification S.O. 5109(E)",
+      "url": "https://egazette.gov.in"
     },
     {
-      "title": "Professional tax: state Acts on tax on professions, trades, callings and employments (monthly salary slabs; Maharashtra and Karnataka collect ₹300 in February; Tamil Nadu and Kerala collect half-yearly; MP, Jharkhand, Bihar and Odisha by annual salary). To be re-checked by the monthly rules check.",
+      "title": "Professional tax: state Acts on tax on professions, trades, callings and employments (monthly salary slabs; Maharashtra and Karnataka collect ₹300 in February; Tamil Nadu and Kerala collect half-yearly; MP, Jharkhand, Bihar and Odisha by annual salary). Sikkim, Mizoram, Tripura, Meghalaya, Manipur and Puducherry added from their state schedules. To be re-checked by the monthly rules check.",
       "url": "https://www.mahagst.gov.in"
     }
   ],
@@ -430,6 +430,189 @@
           }
         ],
         "adjustMonth": 2
+      },
+      "SK": {
+        "name": "Sikkim",
+        "basis": "monthly",
+        "slabs": [
+          {
+            "upto": 20000,
+            "amount": 0
+          },
+          {
+            "upto": 30000,
+            "amount": 125
+          },
+          {
+            "upto": 40000,
+            "amount": 150
+          },
+          {
+            "upto": null,
+            "amount": 200
+          }
+        ]
+      },
+      "MZ": {
+        "name": "Mizoram",
+        "basis": "monthly",
+        "slabs": [
+          {
+            "upto": 5000,
+            "amount": 0
+          },
+          {
+            "upto": 8000,
+            "amount": 75
+          },
+          {
+            "upto": 10000,
+            "amount": 120
+          },
+          {
+            "upto": 12000,
+            "amount": 150
+          },
+          {
+            "upto": 15000,
+            "amount": 180
+          },
+          {
+            "upto": null,
+            "amount": 208
+          }
+        ]
+      },
+      "TR": {
+        "name": "Tripura",
+        "basis": "monthly",
+        "slabs": [
+          {
+            "upto": 7500,
+            "amount": 0
+          },
+          {
+            "upto": 15000,
+            "amount": 150
+          },
+          {
+            "upto": null,
+            "amount": 208
+          }
+        ]
+      },
+      "ML": {
+        "name": "Meghalaya",
+        "basis": "annual",
+        "slabs": [
+          {
+            "upto": 50000,
+            "amount": 0
+          },
+          {
+            "upto": 75000,
+            "amount": 200
+          },
+          {
+            "upto": 100000,
+            "amount": 300
+          },
+          {
+            "upto": 150000,
+            "amount": 500
+          },
+          {
+            "upto": 200000,
+            "amount": 750
+          },
+          {
+            "upto": 250000,
+            "amount": 1000
+          },
+          {
+            "upto": 300000,
+            "amount": 1250
+          },
+          {
+            "upto": 350000,
+            "amount": 1500
+          },
+          {
+            "upto": 400000,
+            "amount": 1800
+          },
+          {
+            "upto": 450000,
+            "amount": 2100
+          },
+          {
+            "upto": 500000,
+            "amount": 2400
+          },
+          {
+            "upto": null,
+            "amount": 2500
+          }
+        ],
+        "adjustMonth": 3
+      },
+      "MN": {
+        "name": "Manipur",
+        "basis": "annual",
+        "slabs": [
+          {
+            "upto": 50000,
+            "amount": 0
+          },
+          {
+            "upto": 75000,
+            "amount": 1200
+          },
+          {
+            "upto": 100000,
+            "amount": 2000
+          },
+          {
+            "upto": null,
+            "amount": 2500
+          }
+        ],
+        "adjustMonth": 3
+      },
+      "PY": {
+        "name": "Puducherry",
+        "basis": "halfYearly",
+        "slabs": [
+          {
+            "upto": 99999,
+            "amount": 0
+          },
+          {
+            "upto": 200000,
+            "amount": 250
+          },
+          {
+            "upto": 300000,
+            "amount": 500
+          },
+          {
+            "upto": 400000,
+            "amount": 750
+          },
+          {
+            "upto": 500000,
+            "amount": 1000
+          },
+          {
+            "upto": null,
+            "amount": 1250
+          }
+        ],
+        "collectMonths": [
+          9,
+          3
+        ],
+        "note": "Collected by the municipality each half-year."
       }
     }
   }

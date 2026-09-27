@@ -34,7 +34,7 @@ export function docHints(s: Scenario, k: number): DocHint[] {
   const salaryDocs = e.docs.filter((d) => SALARY_KINDS.includes(d.kind) && dated(d));
   const newest = salaryDocs.map(dated).sort().pop();
   const userHike = e.revisions.some((r) => !r.source?.startsWith('doc:'));
-  if (workedThisYear && newest && newest < from && !userHike) {
+  if (workedThisYear && newest && newest < from && !userHike && !e.asked?.payChanged) {
     out.push({
       kind: 'appraisal',
       what: `Your latest increment or appraisal letter from ${e.name || 'this job'}`,
@@ -56,6 +56,14 @@ export function docHints(s: Scenario, k: number): DocHint[] {
       kind: 'resignation',
       what: 'Your resignation acceptance or relieving email',
       why: 'It gives your last working day and notice period, which decide your last salary and any notice recovery.',
+    });
+  }
+  // Your only job: if you've resigned, the email gives the dates.
+  if (n === 1 && started && !has('resignation') && !has('fnf') && !e.end) {
+    out.push({
+      kind: 'resignation',
+      what: `If you've resigned from ${e.name || 'this job'}: your resignation acceptance email`,
+      why: 'Your last day, notice and full & final settlement are then worked out too. Or use "I\'m leaving this job" under "Check the numbers".',
     });
   }
   if (leaving && e.end && e.end < s.today && !has('fnf')) {

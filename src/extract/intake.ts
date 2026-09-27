@@ -25,6 +25,7 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
   d.kind = k;
   d.facts = extractFacts(text, k);
   d.employer = x.employer ?? companyFromEmail(text);
+  if (!x.employer && d.employer) d.employerWeak = true;
   d.text = text.slice(0, 60_000);
   // Only offer letters, appraisals and payslips describe a salary breakup. Tax sheets list
   // annual and projected totals; resignation and F&F papers list settlement amounts.
@@ -72,13 +73,19 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
  * One file's records. A note you typed ("got an offer from BP... resigned on 3rd Sept, LWD 11
  * Nov") becomes the new offer and the exit from your current job; anything else is one record.
  */
-export function docsFromText(text: string, name: string): { docs: DocRecord[]; warnings?: string[] } {
+export function docsFromText(text: string, name: string): { docs: DocRecord[]; alternatives: DocRecord[]; warnings?: string[] } {
   if (isNote(text)) {
     const n = parseNote(text, name);
-    const docs = [n.offer, n.exit].filter((d): d is DocRecord => !!d);
-    if (docs.length) return { docs, warnings: n.warnings };
+    const docs = [n.offer, n.exit].filter((d): d is DocRecord => !!d).map(withinLimits);
+    if (docs.length) return { docs, alternatives: n.alternatives.map(withinLimits), warnings: n.warnings };
   }
-  return { docs: [docFromText(text, name)] };
+  return { docs: [docFromText(text, name)], alternatives: [] };
+}
+
+/** Drop figures too big to be salary (a misread), as for any file. */
+function withinLimits(d: DocRecord): DocRecord {
+  const fields = Object.fromEntries(Object.entries(d.fields).filter(([f, v]) => v <= (FIELD_MAX[f] ?? (f.startsWith('other:') ? 1_000_000 : Infinity))));
+  return { ...d, fields };
 }
 
 const DEFAULT_NAME = /^(new job|current job|job \d)$/i;
@@ -86,7 +93,15 @@ const DEFAULT_NAME = /^(new job|current job|job \d)$/i;
 export const jobKeys = (e: Employment) =>
   new Set([companyKey(e.name), ...e.docs.map((d) => companyKey(d.employer))].filter(Boolean));
 
-const matches = (a: string, keys: Set<string>) => [...keys].some((k) => k === a || k.startsWith(`${a} `) || a.startsWith(`${k} `));
+const compact = (k: string) => k.replace(/\s+/g, '');
+const initials = (k: string) => k.split(' ').map((w) => w[0]).join('');
+/** Same company: "acme" and "acme software", "acmesoftware" (an email domain) and "acme software". */
+const matches = (a: string, keys: Set<string>) =>
+  [...keys].some((k) => k === a || k.startsWith(`${a} `) || a.startsWith(`${k} `) || compact(k) === compact(a) || prefixOf(compact(k), compact(a)));
+/** One name runs on from the other ("acme" -> "acmesoftware"): only for names long enough to mean something. */
+const prefixOf = (x: string, y: string) => Math.min(x.length, y.length) >= 5 && (x.startsWith(y) || y.startsWith(x));
+/** A company guessed from an email domain: also "tcs" for Tata Consultancy Services. */
+const matchesWeak = (a: string, keys: Set<string>) => matches(a, keys) || [...keys].some((k) => k.includes(' ') && initials(k) === compact(a));
 
 const isBlank = (e: Employment) => !e.docs.length && !e.structure.basic && !e.totalsOnly && DEFAULT_NAME.test(e.name);
 
@@ -193,8 +208,10 @@ export function assignDocs(
   // Offers first: they lay out the timeline.
   const ordered = [...docs].sort((a, b) => (a.kind === 'offer' ? 0 : 1) - (b.kind === 'offer' ? 0 : 1) || (docWhen(a) ?? '').localeCompare(docWhen(b) ?? ''));
   for (const d of ordered) {
-    const key = companyKey(d.employer);
-    let target = key ? jobs.find((e) => matches(key, jobKeys(e))) : undefined;
+    let key = companyKey(d.employer);
+    let target = key ? jobs.find((e) => (d.employerWeak ? matchesWeak : matches)(key, jobKeys(e))) : undefined;
+    // A company guessed from an email domain that matches no job: place it by date instead.
+    if (!target && d.employerWeak) key = '';
     if (!target && d.kind === 'offer') {
       // Same joining date as a job without a name yet: same job. Otherwise a new job.
       const when = docWhen(d);
@@ -283,7 +300,10 @@ export function checkTimeline(jobs: Employment[], fy: number): { employers: Empl
     let reason: string | undefined;
     if (left && left < from) reason = `You left ${e.name} on ${long(left)}, before ${fyName(year)} began.`;
     else if (!left && !activeInYear) {
-      const later = out.find((o) => o !== e && !isBlank(o) && companyKey(o.name) !== companyKey(e.name) && (starts.get(o.id) ?? '') > start && (starts.get(o.id) ?? '') <= from);
+      // Only a later job with its own salary papers can push this one out: never set aside a
+      // job's salary for a job that exists only through an email or a resignation.
+      const salaried = (o: Employment) => o.docs.some((d) => d.kind === 'offer' || d.kind === 'appraisal' || d.kind === 'payslip');
+      const later = out.find((o) => o !== e && !isBlank(o) && salaried(o) && companyKey(o.name) !== companyKey(e.name) && (starts.get(o.id) ?? '') > start && (starts.get(o.id) ?? '') <= from);
       if (later) reason = `You joined ${later.name} on ${long(starts.get(later.id)!)}, before ${fyName(year)} began, so this is from an earlier job.`;
     }
     if (!reason || e.docs.some((d) => d.keep)) return true;

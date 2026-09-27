@@ -120,7 +120,12 @@ describe('payroll before it knows you are leaving', () => {
 });
 
 describe('gratuity and ex gratia', () => {
-  const base = job('S', '2025-01-20', '2026-11-01', 82080, { fnf: { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 }, ctcParts: { gratuity: 3240 } });
+  const base = job('S', '2025-01-20', '2026-11-01', 82080, { fnf: { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0, exGratia: true }, ctcParts: { gratuity: 3240 } });
+  it('under 5 years, ex gratia only when your employer pays it', () => {
+    const f = fnfItems({ ...base, fnf: { ...base.fnf!, exGratia: undefined } }, 2026)!;
+    expect(f.gratuity).toBe(0);
+    expect(f.gratuityKind).toBe('none');
+  });
   it('under 5 years: ex gratia at the CTC gratuity rate, prorated, taxable', () => {
     const f = fnfItems(base, 2026)!;
     expect(f.gratuityKind).toBe('exgratia');

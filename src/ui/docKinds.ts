@@ -6,7 +6,7 @@ export const DOC_KIND_LABEL: Record<DocKind, string> = {
   payslip: 'Payslip',
   taxsheet: 'Tax computation sheet',
   resignation: 'Resignation / relieving',
-  fnf: 'F&F settlement',
+  fnf: 'Full & final (F&F) settlement',
   other: 'Other (ignore)',
 };
 

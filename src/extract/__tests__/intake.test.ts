@@ -409,3 +409,24 @@ describe('audit: dates are asked, not invented', () => {
     expect(noticeShortfall({ ...e, end: '2027-04-05' })).toBe(10);
   });
 });
+
+describe('company from an email address is only a hint', () => {
+  const LETTER = `Acme Software Private Limited
+Date: 01/05/2024
+Letter of Appointment
+Your date of joining will be 1st June 2024.
+Component Monthly Annual
+Basic 50,000 6,00,000
+HRA 25,000 3,00,000
+Special Allowance 30,000 3,60,000
+Total CTC 13,00,000`;
+  const EMAIL = `From: HR <hr@acmesoftware.com>
+Date: 01/08/2026
+Subject: Acceptance of your resignation
+We accept your resignation dated 01/08/2026. Your last working day will be 31st October 2026.`;
+  it('an email from acmesoftware.com joins the Acme Software job', () => {
+    const r = assignDocs([blankJob('New job', '2026-04-01')], [docFromText(LETTER, 'appointment.pdf'), docFromText(EMAIL, 'resignation.eml')], 2026);
+    expect(r.employers.map((e) => [e.name, e.docs.length])).toEqual([['Acme Software Private Limited', 2]]);
+    expect(r.aside).toEqual([]);
+  });
+});

@@ -8,7 +8,7 @@ import { needsPrevVariable } from './PrevVariable';
 import { exitQuestionFor } from './ExitQuestion';
 import { pfCeilingRiseIn, ptRuleFor } from '../domain/schedule';
 import { monthLong } from '../domain/fy';
-import { needsNotice } from './Questions';
+import { needsExGratia, needsNotice, staleSalary } from './Questions';
 import { needsBuyout, needsNps, needsRelocation, prevNps } from './JoiningQuestions';
 
 export interface Pending {
@@ -31,6 +31,9 @@ export function pendingItems(st: AppState, s: Scenario, rules: Rules, openConfli
   s.employers.forEach((e, k) => {
     const name = e.name || `Job ${k + 1}`;
     if (e.totalsOnly) return;
+    if (needsExGratia(e, k < n - 1 || !!e.end)) out.push({ job: e.id, text: `${name}: is ex gratia paid when you leave (under 5 years)?` });
+    if (staleSalary(e, s.fy, s.today)) out.push({ job: e.id, text: `${name}: has your pay changed since your latest letter or payslip?` });
+    if (e.splitGuessed && !e.asked?.split) out.push({ job: e.id, text: `${name}: check the salary split (the letter gave only a CTC)` });
     if (needsNotice(e)) out.push({ job: e.id, text: `${name}: your notice period (for the notice shortfall)` });
     if (needsNps(s, k)) out.push({ job: e.id, text: prevNps(s, k) ? `${name}: will you continue employer NPS there?` : `${name}: will it pay employer NPS for you?` });
     if (needsBuyout(s, k)) out.push({ job: e.id, text: `${name}: will it pay a notice buyout?` });

@@ -1,5 +1,5 @@
 import { epfCeiling, type PtRule, type Rules, type TaxYearRules } from '../rules';
-import { addMonths, fyEnd, fyMonths, fyOf, fyStart, daysBetween, maxDate, minDate, monthFactor, monthName, monthOf } from './fy';
+import { addMonths, daysInMonth, fyEnd, fyMonths, fyOf, fyStart, daysBetween, maxDate, minDate, monthFactor, monthName, monthOf } from './fy';
 import type { Employment, MonthLine, OneTime, Structure } from './types';
 
 export const fixedMonthly = (s: Structure) =>
@@ -179,7 +179,11 @@ export function buildLines(
   const lines: MonthLine[] = [];
   const employed = fyMonths(fy).filter((m) => monthFactor(m, w.start, w.end, thirty) > 0);
   for (const month of fyMonths(fy)) {
-    const f = monthFactor(month, w.start, w.end, thirty);
+    const worked = monthFactor(month, w.start, w.end, thirty);
+    // Unpaid (loss of pay) days come off that month's pay like days not employed.
+    const lop = emp.lopDays?.[month] ?? 0;
+    const dim = thirty ? 30 : daysInMonth(+month.slice(0, 4), +month.slice(5, 7));
+    const f = worked > 0 ? Math.max(0, worked - lop / dim) : 0;
     const ots = oneTimes.filter((o) => o.month === month && o.amount);
     // A payout after the last working day (e.g. F&F settled later) still belongs to this employer.
     if (f === 0 && ots.length === 0) continue;

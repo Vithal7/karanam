@@ -191,14 +191,31 @@ export const toLines = (text: string) =>
     .map((l) => l.replace(/[\t ]+/g, ' ').trim())
     .filter(Boolean);
 
-function detectColumns(lines: string[]): 'monthly-first' | 'annual-first' | undefined {
+type Columns = 'monthly-first' | 'annual-first' | 'annual-only' | 'monthly-only';
+
+/**
+ * How the salary table's figures are laid out: both columns (in which order), or a single annual
+ * or monthly column ("Component | Amount (INR p.a.)", "Salary structure (per month)").
+ */
+function detectColumns(lines: string[]): Columns | undefined {
   for (const l of lines) {
     const mi = l.search(/monthly|per\s+month|p\.?m\.?\b/i);
     const ai = l.search(/annual|yearly|per\s+annum|p\.?a\.?\b/i);
     if (mi >= 0 && ai >= 0 && l.length < 120) return mi < ai ? 'monthly-first' : 'annual-first';
   }
+  // A header with one period and no figures of its own.
+  for (const l of lines) {
+    if (l.length > 100 || numbersIn(l).length) continue;
+    if (!/component|particular|salary|compensation|structure|break\s*-?up|amount|earnings|ctc|\(inr|\(rs|₹/i.test(l)) continue;
+    const m = /monthly|per\s+month|p\.?\s*m\.?\b|\/\s*month/i.test(l);
+    const a = /annual|yearly|per\s+annum|p\.?\s*a\.?\b|\/\s*(year|annum)/i.test(l);
+    if (m !== a) return a ? 'annual-only' : 'monthly-only';
+  }
   return undefined;
 }
+
+/** Figures that are always small each month: a larger one is the year's total. */
+const MONTHLY_CAP: Partial<Record<ComponentKey, number>> = { pt: 2_500, employerPf: 30_000, employeePf: 30_000, vpf: 200_000 };
 
 interface Segment {
   key: ComponentKey;
@@ -275,7 +292,8 @@ export function parseText(text: string): Extracted {
       const nums = numbersIn(seg.text).filter((n) => !n.pct);
       const pool = nums.length ? nums : segments(lines[i + 1] || '').length ? [] : numbersIn(lines[i + 1] || '').filter((n) => !n.pct);
       if (!pool.length) continue;
-      const v = Math.max(...pool.map((n) => n.value));
+      // In a per-month table the CTC row is the month's cost, unless that row says it's annual.
+      const v = Math.max(...pool.map((n) => n.value)) * (cols === 'monthly-only' && !ANNUAL_HINT.test(lines[i]) ? 12 : 1);
       if (v >= 100_000 && (!ctc || v > ctc)) ctc = v;
     }
   }
@@ -283,7 +301,8 @@ export function parseText(text: string): Extracted {
   if (!ctc && kind === 'offer') {
     for (const l of lines) {
       if (!/^\s*(grand\s+)?total\s*(\([^)]*\))?\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*\d/i.test(l)) continue;
-      const v = Math.max(0, ...numbersIn(l).filter((n) => !n.pct).map((n) => n.value));
+      const raw = Math.max(0, ...numbersIn(l).filter((n) => !n.pct).map((n) => n.value));
+      const v = cols === 'monthly-only' ? raw * 12 : raw;
       if (v >= 100_000 && (!ctc || v > ctc)) ctc = v;
     }
   }
@@ -329,9 +348,12 @@ export function parseText(text: string): Extracted {
       }
     } else if (money.length === 1) {
       const v = money[0];
-      if (ANNUAL_ONLY.includes(key)) {
+      if (ANNUAL_ONLY.includes(key) && !(cols === 'monthly-only' && (key === 'gratuity' || key === 'insurance'))) {
         annual = v;
         monthly = v / 12;
+        confidence = 'found';
+      } else if (cols === 'annual-only' || cols === 'monthly-only') {
+        monthly = cols === 'annual-only' ? v / 12 : v;
         confidence = 'found';
       } else if (MONTHLY_HINT.test(line) && !ANNUAL_HINT.test(line)) {
         monthly = v;
@@ -370,6 +392,28 @@ export function parseText(text: string): Extracted {
       continue;
     }
     components[key] = { key, label: NICE[key], monthly: monthly!, annual: annual!, confidence, pct, monthOffset: monthOffsetIn(lines[i]) };
+  }
+
+  // A PF or PT figure too big for a month is the year's amount (an annual-only table we couldn't tell).
+  for (const [k, cap] of Object.entries(MONTHLY_CAP) as [ComponentKey, number][]) {
+    const c = components[k];
+    if (c && c.monthly > cap && c.confidence === 'guessed') {
+      c.monthly = c.monthly / 12;
+      c.annual = c.monthly * 12;
+    }
+  }
+  const b = components.basic;
+  for (const k of ['employerPf', 'employeePf'] as const) {
+    const c = components[k];
+    if (c && b && c.monthly > 0.125 * b.monthly && c.monthly / 12 <= 0.125 * b.monthly) {
+      c.monthly = c.monthly / 12;
+      c.annual = c.monthly * 12;
+    }
+  }
+  // A CTC smaller than a year's basic is a monthly total.
+  if (components.ctc && b && components.ctc.annual < b.monthly * 12 && components.ctc.annual * 12 >= b.monthly * 12) {
+    components.ctc = { ...components.ctc, annual: components.ctc.annual * 12, monthly: components.ctc.annual };
+    ctc = components.ctc.annual;
   }
 
   // Percent-only rows.

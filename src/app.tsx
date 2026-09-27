@@ -5,7 +5,7 @@ import { fixedMonthly } from './domain/schedule';
 import { buildStory, buildTimeline } from './domain/story';
 import type { DocRecord, Employment, Facts } from './domain/types';
 import { applyEvents } from './extract/events';
-import { assignDocs, blankJob, docFromText, orderJobs } from './extract/intake';
+import { assignDocs, blankJob, docFromText, docsFromText, orderJobs } from './extract/intake';
 import { applyDocs, mergeDocs, baseDocs } from './extract/merge';
 import { type Rules } from './rules';
 import { activeRules, watchRules } from './rules/update';
@@ -147,14 +147,17 @@ export function App() {
   /** New files: read them, sort them into jobs by company and date, rebuild those jobs. */
   const ingest = (files: ReadFile[]) =>
     setSt((x) => {
-      const docs = files.map((f) => docFromText(f.text, f.name));
-      const texts = Object.fromEntries(docs.map((d, i) => [d.id, files[i].text]));
+      // A typed note can describe two jobs (the offer and the job you're leaving): one record each.
+      const read = files.map((f) => ({ f, ...docsFromText(f.text, f.name) }));
+      const docs = read.flatMap((r) => r.docs);
+      const texts = Object.fromEntries(read.flatMap((r) => r.docs.map((d) => [d.id, r.f.text])));
       const { employers, unassigned, changed, aside } = assignDocs(x.scenario.employers, docs, x.scenario.fy, texts);
       const warnings = { ...x.warnings };
-      for (const f of files) {
-        const d = docs.find((dd) => dd.name === f.name);
-        const job = employers.find((e) => e.docs.some((dd) => dd.id === d?.id));
-        if (job && d?.kind === 'offer') warnings[job.id] = [...(warnings[job.id] ?? []), ...f.x.warnings.map((w) => `${f.name}: ${w}`)];
+      for (const r of read) {
+        for (const d of r.docs.filter((dd) => dd.kind === 'offer')) {
+          const job = employers.find((e) => e.docs.some((dd) => dd.id === d.id));
+          if (job) warnings[job.id] = [...(warnings[job.id] ?? []), ...(r.warnings ?? r.f.x.warnings).map((w) => `${r.f.name}: ${w}`)];
+        }
       }
       return rebuild({ ...x, scenario: { ...x.scenario, employers }, inbox: [...x.inbox, ...unassigned], aside: [...x.aside, ...aside], warnings, timelineOk: false }, changed, rules);
     });

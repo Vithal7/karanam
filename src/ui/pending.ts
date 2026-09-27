@@ -8,6 +8,7 @@ import { needsPrevVariable } from './PrevVariable';
 import { exitQuestionFor } from './ExitQuestion';
 import { pfCeilingRiseIn, ptRuleFor } from '../domain/schedule';
 import { monthLong } from '../domain/fy';
+import { needsNotice } from './Questions';
 import { needsBuyout, needsNps, needsRelocation, prevNps } from './JoiningQuestions';
 
 export interface Pending {
@@ -30,6 +31,7 @@ export function pendingItems(st: AppState, s: Scenario, rules: Rules, openConfli
   s.employers.forEach((e, k) => {
     const name = e.name || `Job ${k + 1}`;
     if (e.totalsOnly) return;
+    if (needsNotice(e)) out.push({ job: e.id, text: `${name}: your notice period (for the notice shortfall)` });
     if (needsNps(s, k)) out.push({ job: e.id, text: prevNps(s, k) ? `${name}: will you continue employer NPS there?` : `${name}: will it pay employer NPS for you?` });
     if (needsBuyout(s, k)) out.push({ job: e.id, text: `${name}: will it pay a notice buyout?` });
     if (needsRelocation(s, k)) out.push({ job: e.id, text: `${name}: any relocation support?` });

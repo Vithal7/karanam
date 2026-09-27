@@ -3,6 +3,10 @@ import { useState } from 'preact/hooks';
 import { addMonths, monthLong, monthOf } from '../domain/fy';
 import type { Employment } from '../domain/types';
 import { Choices, DateInput, Field, Money, MonthInput, Num } from './controls';
+import { daysBetween } from '../domain/fy';
+import { noticeShortfall } from '../domain/schedule';
+import { rs } from '../format';
+import { fnfItems } from '../domain/compute';
 
 const long = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -156,6 +160,60 @@ export function LeaveQuestion(props: { emp: Employment; onChange: (e: Employment
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * You've resigned and know your last day, but not your notice period: without it there's no
+ * notice shortfall, so no recovery and nothing for a buyout to cover.
+ */
+export const needsNotice = (e: Employment) =>
+  !e.totalsOnly &&
+  !!e.resignedOn &&
+  !!e.end &&
+  !e.noticeDays &&
+  !e.asked?.notice &&
+  e.fnf?.noticeAmount === undefined &&
+  !e.fnf?.noticeDaysRecovered &&
+  !e.docs.some((d) => d.facts?.shortfallDays !== undefined);
+
+export function NoticeQuestion(props: { emp: Employment; fy: number; thirty: boolean; onChange: (e: Employment) => void }) {
+  const e = props.emp;
+  const [days, setDays] = useState(0);
+  const served = daysBetween(e.resignedOn!, e.end) - 1;
+  const draft: Employment = { ...e, noticeDays: days || undefined, noticeMonths: undefined };
+  const short = noticeShortfall(draft) ?? 0;
+  const f = fnfItems({ ...draft, fnf: { leaveDays: 0, clawback: 0, ...(e.fnf ?? {}), noticeDaysRecovered: short } }, props.fy, props.thirty);
+  return (
+    <div class="callout ask exit-q">
+      <p>
+        <strong>What's your notice period at {e.name}?</strong> You resigned on {long(e.resignedOn!)} and leave on {long(e.end)}, so you serve {served} days. Any days short are recovered in
+        your F&F, and a new employer's notice buyout pays them back.
+      </p>
+      <div class="grid2">
+        <Field label="Notice period">
+          <Num value={days} onChange={setDays} suffix="days" ariaLabel="Notice period in days" />
+        </Field>
+        <div class="q-action">
+          <button
+            type="button"
+            class="btn small primary"
+            disabled={!days}
+            onClick={() => props.onChange({ ...draft, asked: { ...e.asked, notice: true }, fnf: { leaveDays: 0, clawback: 0, ...(e.fnf ?? {}), noticeDaysRecovered: short } })}
+          >
+            Use this
+          </button>
+        </div>
+      </div>
+      {days > 0 && (
+        <p class="note">
+          {short > 0 ? `${short} days short: about ${rs(f ? f.noticePerDay * short : 0)} recovered (${f?.noticeRateLabel ?? 'basic ÷ 30'} a day).` : 'You serve your full notice. No recovery.'}
+        </p>
+      )}
+      <button type="button" class="btn link inline" onClick={() => props.onChange({ ...e, asked: { ...e.asked, notice: true } })}>
+        I serve my full notice
+      </button>
     </div>
   );
 }

@@ -136,7 +136,7 @@ const LEAVE_BASES: { value: LeaveBasis; label: string }[] = [
 ];
 
 /** Resignation, last working day and the full & final settlement. */
-export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean; onChange: (e: Employment) => void }) {
+export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean; onChange: (e: Employment) => void; /** The job's own Bonuses card isn't shown: edit its joining bonus here. */ showJoiningBonus?: boolean }) {
   const e = props.emp;
   const f: FnF = e.fnf ?? { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 };
   const setF = (patch: Partial<FnF>) => props.onChange({ ...e, fnf: { ...f, ...patch } });
@@ -261,6 +261,27 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
         .filter((o) => o.amount > 0 && (o.kind === 'joining' || /retention|relocation/i.test(o.label)))
         .map((o) => (
           <ClawbackTermsEditor bonus={o} onChange={(patch) => props.onChange({ ...e, oneTimes: e.oneTimes.map((x) => (x === o ? { ...x, ...patch } : x)) })} />
+        ))}
+      {!e.oneTimes.some((o) => o.kind === 'joining') && (
+        <button
+          type="button"
+          class="btn link"
+          onClick={() => props.onChange({ ...e, oneTimes: [...e.oneTimes, { id: 'joining', label: 'Joining bonus', kind: 'joining', amount: 0, month: monthOf(e.start || e.end), taxable: true, clawbackMonths: 12, clawbackBasis: 'full', clawbackEdited: true }] })}
+        >
+          + I got a joining bonus here (to work out any repayment)
+        </button>
+      )}
+      {e.oneTimes
+        .filter((o) => o.kind === 'joining' && props.showJoiningBonus)
+        .map((o) => (
+          <div class="grid2">
+            <Field label="Joining bonus you got">
+              <Money value={o.amount} onChange={(v) => props.onChange({ ...e, oneTimes: e.oneTimes.map((x) => (x === o ? { ...x, amount: v } : x)) })} ariaLabel="Joining bonus received" />
+            </Field>
+            <Field label="Paid in">
+              <MonthInput value={o.month} onChange={(v) => props.onChange({ ...e, oneTimes: e.oneTimes.map((x) => (x === o ? { ...x, month: v } : x)) })} ariaLabel="Joining bonus paid in" />
+            </Field>
+          </div>
         ))}
       {items && items.clawbackLines.map((l) => <p class="note">{l.label}: {l.why}</p>)}
       {items && !items.clawbackFromTerms && items.clawbackLines.length > 0 && (

@@ -7,6 +7,7 @@ import { fnfItems } from '../domain/compute';
 import { fyStart, maxDate, monthOf, addMonths } from '../domain/fy';
 import type { Buyout, Employment, Scenario, Structure } from '../domain/types';
 import { rs } from '../format';
+import { isNote } from '../extract/note';
 import { rulesFor, type Rules } from '../rules';
 import { Choices, Field, Money, MonthInput, Percent, Segmented, Toggle } from './controls';
 
@@ -36,7 +37,8 @@ export const needsNps = (s: Scenario, k: number) => {
 };
 export const needsBuyout = (s: Scenario, k: number) => {
   const e = s.employers[k];
-  return isJoining(s, k) && k > 0 && !s.employers[k - 1].totalsOnly && !e.asked?.buyout && !e.docs.some((d) => d.facts?.buyout);
+  // Asked even when the letter or your note states it: you confirm what was read.
+  return isJoining(s, k) && k > 0 && !s.employers[k - 1].totalsOnly && !e.asked?.buyout;
 };
 export const needsRelocation = (s: Scenario, k: number) => isJoining(s, k) && !s.employers[k].asked?.relocation;
 
@@ -128,9 +130,10 @@ export function BuyoutQuestion(props: { s: Scenario; k: number; onChange: (e: Em
   const pf = fnfItems(prev, props.s.fy, props.s.settings.thirtyDayMonth);
   const owed = pf ? pf.noticeRecovery : 0;
   const claw = pf ? pf.clawback : 0;
-  const [mode, setMode] = useState<Buyout['mode'] | null>(null);
-  const [cap, setCap] = useState(0);
-  const [incl, setIncl] = useState(false);
+  const fromDoc = e.docs.some((d) => d.facts?.buyout) ? e.buyout : undefined;
+  const [mode, setMode] = useState<Buyout['mode'] | null>(fromDoc?.mode ?? null);
+  const [cap, setCap] = useState(fromDoc?.cap ?? 0);
+  const [incl, setIncl] = useState(!!fromDoc?.includesClawback);
   const save = (b: Buyout) => props.onChange({ ...e, buyout: { ...e.buyout, ...b }, asked: { ...e.asked, buyout: true } });
   return (
     <div class="callout ask exit-q">
@@ -139,13 +142,22 @@ export function BuyoutQuestion(props: { s: Scenario; k: number; onChange: (e: Em
         {owed || claw
           ? `${prev.name || 'Your current employer'} recovers ${rs(owed)} for the notice you don't serve${claw ? ` and ${rs(claw)} of bonus clawback` : ''}.`
           : 'If you leave before your notice ends, the new employer may pay back what your old one recovers.'}
+        {fromDoc && fromDoc.mode !== 'none' && (
+          <>
+            {' '}
+            <strong>
+              Your {e.docs.some((d) => d.facts?.buyout && isNote(d.text ?? '')) ? 'note' : 'offer'} says: {fromDoc.mode === 'cap' && fromDoc.cap ? `up to ${rs(fromDoc.cap)}` : 'in full'}
+              {fromDoc.includesClawback ? ', including the bonus you repay' : ''}.
+            </strong>{' '}
+            Confirm or change it.
+          </>
+        )}
       </p>
       <Choices<Buyout['mode']>
         value={mode}
         onChange={(v) => {
           setMode(v);
-          // With a clawback to cover, ask about it before saving.
-          if (v === 'none' || (v === 'actuals' && !claw)) save({ mode: v });
+          if (v === 'none') save({ mode: v });
         }}
         options={[
           { value: 'none', label: 'No' },
@@ -153,8 +165,8 @@ export function BuyoutQuestion(props: { s: Scenario; k: number; onChange: (e: Em
           { value: 'cap', label: 'Yes, up to a limit' },
         ]}
       />
-      {mode && mode !== 'none' && claw > 0 && <Toggle checked={incl} onChange={setIncl} label="It also covers the bonus you repay" />}
-      {mode === 'actuals' && claw > 0 && (
+      {mode && mode !== 'none' && <Toggle checked={incl} onChange={setIncl} label={`It also covers the joining bonus you repay${claw ? ` (${rs(claw)})` : ''}`} />}
+      {mode === 'actuals' && (
         <button type="button" class="btn small primary" onClick={() => save({ mode: 'actuals', includesClawback: incl })}>
           Use this
         </button>
@@ -180,7 +192,7 @@ export function RelocationQuestion(props: { s: Scenario; k: number; onChange: (e
   const e = props.s.employers[props.k];
   const found = [...e.docs].reverse().find((d) => d.facts?.relocation)?.facts?.relocation;
   const existing = e.oneTimes.find((o) => o.id === 'relocation');
-  const [ans, setAns] = useState<'no' | 'reimb' | 'lump' | null>(null);
+  const [ans, setAns] = useState<'no' | 'reimb' | 'lump' | null>(existing ? (existing.taxable ? 'lump' : 'reimb') : found?.amount ? (found.reimbursement ? 'reimb' : 'lump') : null);
   const [amount, setAmount] = useState(existing?.amount ?? found?.amount ?? 0);
   const [month, setMonth] = useState(existing?.month ?? addMonths(monthOf(maxDate(e.start || props.s.today, props.s.today)), 1));
   const save = (kind: 'no' | 'reimb' | 'lump') => {
@@ -199,7 +211,7 @@ export function RelocationQuestion(props: { s: Scenario; k: number; onChange: (e
     <div class="callout ask exit-q">
       <p>
         <strong>Does {e.name || 'your new employer'} give relocation support?</strong>{' '}
-        {found ? `Your offer letter mentions relocation${found.amount ? ` (${rs(found.amount)})` : ''}${found.reimbursement ? ', reimbursed against bills' : ''}. ` : ''}
+        {found ? `Your ${e.docs.some((d) => d.facts?.relocation && isNote(d.text ?? '')) ? 'note' : 'offer letter'} mentions relocation${found.amount ? ` (${rs(found.amount)})` : ''}${found.reimbursement ? ', reimbursed against bills' : ''}. ` : ''}
         Moving costs reimbursed against bills (travel, packing, transport) are tax-free; a fixed relocation allowance or bonus is taxed like salary.
       </p>
       <Choices<'no' | 'reimb' | 'lump'>

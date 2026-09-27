@@ -164,7 +164,7 @@ export function JobEditStep(props: {
                 </Field>
                 <TdsMonths emp={e} s={s} onChange={props.onChange} />
               </div>
-              <ExitEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} />
+              <ExitEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} showJoiningBonus={index === 0} />
             </>
           )}
         </>

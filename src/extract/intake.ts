@@ -9,6 +9,7 @@ import { uid } from '../format';
 import { classifyDoc, companyFromEmail, companyKey, extractFacts } from './facts';
 import { docFromExtract } from './merge';
 import { parseText } from './parse';
+import { isNote, parseNote } from './note';
 import { parseMonthTable, sheetFy } from './months';
 import { parseForm16 } from './form16';
 import { fyEnd, fyOf, maxDate, minDate } from '../domain/fy';
@@ -65,6 +66,19 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
   if (k !== 'offer') delete d.doj;
   if (k === 'other') d.fields = {};
   return d;
+}
+
+/**
+ * One file's records. A note you typed ("got an offer from BP... resigned on 3rd Sept, LWD 11
+ * Nov") becomes the new offer and the exit from your current job; anything else is one record.
+ */
+export function docsFromText(text: string, name: string): { docs: DocRecord[]; warnings?: string[] } {
+  if (isNote(text)) {
+    const n = parseNote(text, name);
+    const docs = [n.offer, n.exit].filter((d): d is DocRecord => !!d);
+    if (docs.length) return { docs, warnings: n.warnings };
+  }
+  return { docs: [docFromText(text, name)] };
 }
 
 const DEFAULT_NAME = /^(new job|current job|job \d)$/i;

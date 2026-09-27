@@ -126,13 +126,13 @@ export function Uploader(props: {
       {pasting ? (
         <div class="paste">
           <label class="field-label" for="paste-text">
-            Paste the text of your letter or payslip
+            Paste your letter or payslip, or describe your offer in your own words
           </label>
           <textarea
             id="paste-text"
             class="text"
             rows={8}
-            placeholder={'Open the letter, select all, copy, and paste it here.\ne.g. Basic Salary  1,42,500  17,10,000'}
+            placeholder={'Paste the letter\'s text, or write e.g.\nGot an offer from BP Pvt Ltd: 34.2 base (17.10 basic, 50% basic HRA, rest special), 1.8 variable. Joining 12 Nov 2026. Resigned 3 Sept, LWD 11 Nov 2026, 22 leaves at Suzlon.'}
             value={pasted}
             onInput={(e) => setPasted((e.target as HTMLTextAreaElement).value)}
           />

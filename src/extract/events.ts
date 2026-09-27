@@ -198,7 +198,18 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
   // --- New-offer terms ---
   const offerFacts = docs.filter((d) => d.kind === 'offer').map((d) => d.facts ?? {});
   const bo = offerFacts.find((f) => f.buyout)?.buyout;
-  if (bo) out.buyout = { ...(out.buyout ?? {}), mode: bo.mode, cap: bo.cap };
+  if (bo) out.buyout = { ...(out.buyout ?? {}), mode: bo.mode, cap: bo.cap, ...(bo.includesClawback !== undefined ? { includesClawback: bo.includesClawback } : {}) };
+  // Relocation with an amount (from a note or the letter): added until you answer the relocation question.
+  const rel = [...offerFacts].reverse().find((f) => f.relocation?.amount)?.relocation;
+  if (rel?.amount && !out.asked?.relocation && !out.oneTimes.some((o) => o.id === 'relocation')) {
+    const month = addMonths(monthOf(out.start), 1);
+    out.oneTimes = [
+      ...out.oneTimes,
+      rel.reimbursement
+        ? { id: 'relocation', label: 'Relocation reimbursement', kind: 'other', amount: rel.amount, month, taxable: false }
+        : { id: 'relocation', label: 'Relocation allowance', kind: 'bonus', amount: rel.amount, month, taxable: true },
+    ];
+  }
   // A joining bonus with no stated pay month is usually paid once probation is over: with the
   // salary of the month after it (3 months' probation from November -> February).
   const probation = offerFacts.find((f) => f.probationMonths)?.probationMonths;

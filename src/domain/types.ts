@@ -207,7 +207,7 @@ export interface Facts {
   fnfPayMonth?: string;
   clawback?: number;
   penalty?: number;
-  buyout?: { mode: 'actuals' | 'cap'; cap?: number };
+  buyout?: { mode: 'actuals' | 'cap'; cap?: number; includesClawback?: boolean };
   joiningClawbackMonths?: number;
   /** Repayment terms of a joining or retention bonus, as the letter states them. */
   clawbackTerms?: Partial<Record<'joining' | 'retention', ClawbackTerms>>;
@@ -304,7 +304,7 @@ export interface Employment {
    * Joining questions you've answered for this job, so they aren't asked again: employer NPS,
    * notice buyout, relocation.
    */
-  asked?: { nps?: boolean; buyout?: boolean; relocation?: boolean };
+  asked?: { nps?: boolean; buyout?: boolean; relocation?: boolean; notice?: boolean };
   /**
    * Where you work: the state decides professional tax. `source`: read from a letter's work
    * location (doc), guessed from a city mentioned in it (guess), or given by you (user).

@@ -230,7 +230,10 @@ export function compute(s: Scenario, rules: Rules = bundledRules): Result {
 
     const e = withExtras(emp, extraOt, extraRec);
     const v = variableAsOneTime(e);
-    const lines = buildLines(e, k, s.fy, thirty, [...e.oneTimes, ...arrearsFor(e, thirty), ...(v ? [v] : [])], rules, t);
+    // Arrears recorded from a payslip or tax sheet replace the ones we'd work out.
+    const recordedArrears = new Set(e.oneTimes.filter((o) => o.id.startsWith('actual-') && /arrear/i.test(o.label)).map((o) => o.month));
+    const arrears = arrearsFor(e, thirty).filter((a) => !recordedArrears.has(a.month));
+    const lines = buildLines(e, k, s.fy, thirty, [...e.oneTimes, ...arrears, ...(v ? [v] : [])], rules, t);
 
     // Everything earned at earlier jobs this FY, which this payroll learns from Form 12B.
     const earlier = out;

@@ -123,6 +123,13 @@ export interface Buyout {
   month?: string;
 }
 
+/** What actually happened in one month, from a payslip or a tax sheet's month-wise table. */
+export interface MonthActual {
+  tds?: number;
+  gross?: number;
+  items?: { label: string; amount: number; kind: 'bonus' | 'arrears' }[];
+}
+
 /** Dated facts read from a file, beyond salary components. */
 export interface Facts {
   effectiveFrom?: string;
@@ -148,6 +155,8 @@ export interface Facts {
   joiningClawbackMonths?: number;
   /** Tax computation sheet: income tax deducted so far this year. */
   tdsToDate?: number;
+  /** Month-by-month actuals ("YYYY-MM"), from a payslip or a month-wise tax sheet. */
+  monthly?: Record<string, MonthActual>;
 }
 
 /** When the employer gets Form 12B (earlier salary + TDS) relative to the joining month. */
@@ -188,6 +197,8 @@ export interface Employment {
   ctc: number;
   /** Monthly parts of CTC that never reach the payslip, when the letter lists them. */
   ctcParts?: { employerPf?: number; gratuity?: number; insurance?: number };
+  /** Last year's variable pay, usually paid this year: 'paid' (added as a payment) or 'no'. */
+  prevVariable?: 'paid' | 'no';
   /** Notice period in days (from the appointment letter, or entered). */
   noticeDays?: number;
   /** Where the last working day came from: a resignation/F&F paper, you, or an assumption. */

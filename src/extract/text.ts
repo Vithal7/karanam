@@ -12,6 +12,10 @@ async function pdfText(file: Blob, onProgress?: Progress): Promise<string> {
     const page = await doc.getPage(p);
     const content = await page.getTextContent();
     const rows: { y: number; items: { x: number; s: string }[] }[] = [];
+    const widths: number[] = [];
+    for (const it of content.items as { str: string; transform: number[]; height?: number; width?: number }[]) {
+      if ('str' in it && it.str.trim() && it.width) widths.push(it.width / it.str.length);
+    }
     for (const it of content.items as { str: string; transform: number[]; height?: number }[]) {
       if (!('str' in it) || !it.str.trim()) continue;
       const x = it.transform[4];
@@ -24,7 +28,23 @@ async function pdfText(file: Blob, onProgress?: Progress): Promise<string> {
       row.items.push({ x, s: it.str });
     }
     rows.sort((a, b) => b.y - a.y);
-    pages.push(rows.map((r) => r.items.sort((a, b) => a.x - b.x).map((i) => i.s).join('  ')).join('\n'));
+    // Lay text out by x position (like pdftotext -layout), so table columns line up across rows:
+    // a bonus in the July column stays under "Jul" even when other months are blank.
+    widths.sort((a, b) => a - b);
+    const charW = widths[Math.floor(widths.length / 2)] || 5;
+    pages.push(
+      rows
+        .map((r) => {
+          let line = '';
+          for (const i of r.items.sort((a, b) => a.x - b.x)) {
+            const col = Math.round(i.x / charW);
+            line += line ? ' '.repeat(Math.max(2, col - line.length)) : ' '.repeat(Math.max(0, col));
+            line += i.s;
+          }
+          return line.replace(/\s+$/, '');
+        })
+        .join('\n'),
+    );
   }
   return pages.join('\n');
 }

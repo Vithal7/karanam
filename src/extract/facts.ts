@@ -15,11 +15,12 @@ const has = (re: RegExp, t: string) => (t.match(new RegExp(re.source, 'gi')) ?? 
 /** Scores each kind by its tell-tale phrases; offer letters are the fallback. */
 export function classifyDoc(text: string): DocKind {
   const score: Record<DocKind, number> = {
-    other: 0,
+    // Last year's ITR or its acknowledgement: not about this year's pay.
+    other: 4 * has(/itr-?v\b|acknowledgement\s+number|indian\s+income\s+tax\s+return\s+acknowledgement/, text),
     taxsheet:
       3 *
       has(
-        /tax\s+computation|computation\s+of\s+(income|tax)|income\s+tax\s+(computation|projection|worksheet|calculation|statement)|projected\s+(annual\s+)?(income|salary|gross)|tax\s+on\s+total\s+income|form\s*12\s*bb|chapter\s+vi\s*-?\s*a|tax\s+(already\s+)?(deducted|recovered)\s+(till|so\s+far|to\s+date|up\s*to)|tax\s+worksheet|balance\s+tax\s+(payable|to\s+be\s+deducted)/,
+        /tax\s+computation|computation\s+of\s+(income|tax)|form\s*(no\.?)?\s*16\b|certificate\s+under\s+section\s+203|salary\s+register|tds\s+(statement|summary|worksheet)|income\s+tax\s+(computation|projection|worksheet|calculation|statement)|projected\s+(annual\s+)?(income|salary|gross)|tax\s+on\s+total\s+income|form\s*12\s*bb|chapter\s+vi\s*-?\s*a|tax\s+(already\s+)?(deducted|recovered)\s+(till|so\s+far|to\s+date|up\s*to)|tax\s+worksheet|balance\s+tax\s+(payable|to\s+be\s+deducted)/,
         text,
       ),
     fnf: 3 * has(/full\s*(and|&)\s*final|\bf\s*&\s*f\b|\bfnf\b|final\s+settlement|settlement\s+(statement|slip)/, text),
@@ -34,7 +35,7 @@ export function classifyDoc(text: string): DocKind {
   };
   // A new offer usually mentions "relieving letter" only as a joining requirement.
   if (score.offer >= 4) score.resignation = Math.max(0, score.resignation - 3);
-  const order: DocKind[] = ['taxsheet', 'fnf', 'payslip', 'resignation', 'appraisal', 'offer'];
+  const order: DocKind[] = ['other', 'taxsheet', 'fnf', 'payslip', 'resignation', 'appraisal', 'offer'];
   let best: DocKind = 'offer';
   for (const k of order) if (score[k] > score[best] || (score[k] === score[best] && score[k] > 0 && order.indexOf(k) < order.indexOf(best))) best = k;
   return score[best] > 0 ? best : 'offer';

@@ -9,6 +9,8 @@ import { uid } from '../format';
 import { classifyDoc, companyFromEmail, companyKey, extractFacts } from './facts';
 import { docFromExtract } from './merge';
 import { parseText } from './parse';
+import { parseMonthTable } from './months';
+import { fyOf, minDate } from '../domain/fy';
 
 /** Limits for figures read from a file; anything beyond is a misread, not a salary. */
 const FIELD_MAX: Record<string, number> = { basic: 2_000_000, hra: 1_500_000, special: 2_000_000, epf: 100_000, pt: 2_500, nps: 500_000, ctc: 200_000_000, joining: 50_000_000, variable: 100_000_000, retention: 50_000_000 };
@@ -31,6 +33,26 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
   }
   if (d.fields.epf && d.fields.basic && d.fields.epf > d.fields.basic) delete d.fields.epf;
   if (k === 'taxsheet' && d.facts.tdsToDate !== undefined) d.ytdTds = d.facts.tdsToDate;
+  // What already happened, month by month. Only months before the sheet's date are actuals.
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  if (k === 'taxsheet') {
+    const cutoff = d.docDate ? minDate(d.docDate.slice(0, 7), thisMonth) : thisMonth;
+    const monthly = parseMonthTable(text, fyOf(d.docDate ?? `${thisMonth}-01`), cutoff);
+    if (Object.keys(monthly).length) d.facts.monthly = monthly;
+    const tdsMonths = Object.values(monthly).filter((m) => m.tds !== undefined);
+    if (d.ytdTds === undefined && tdsMonths.length) d.ytdTds = tdsMonths.reduce((a, m) => a + (m.tds ?? 0), 0);
+  }
+  if (k === 'payslip' && d.docDate) {
+    const c = x.components;
+    // On a payslip a bonus row is the amount paid that month (read as a one-off, i.e. the "annual" figure).
+    const items = [c.variable, c.retention].filter(Boolean).map((v) => ({ label: v!.label, amount: Math.round(v!.annual), kind: 'bonus' as const }));
+    const month = d.docDate.slice(0, 7);
+    d.facts.monthly = { [month]: { tds: c.tds ? Math.round(c.tds.monthly) : undefined, items: items.length ? items : undefined } };
+    // A payslip's bonus row is what was paid that month, not an annual target.
+    delete d.fields.variable;
+    delete d.fields.retention;
+  }
   if (k !== 'offer') delete d.doj;
   if (k === 'other') d.fields = {};
   return d;

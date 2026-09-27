@@ -5,7 +5,7 @@
  */
 import { addMonths, monthLong, monthOf } from '../domain/fy';
 import { fixedMonthly, noticeShortfall } from '../domain/schedule';
-import type { Employment, FnF, Revision, Structure } from '../domain/types';
+import type { Employment, FnF, MonthActual, OneTime, Revision, Structure } from '../domain/types';
 import { epfCeiling, type Rules } from '../rules';
 import { orderDocs } from './merge';
 
@@ -102,6 +102,37 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
     }
   }
   out.revisions = [...out.revisions, ...hikes].sort((a, b) => a.from.localeCompare(b.from));
+
+  // --- What already happened: payslips and tax sheets, newest file wins per month ---
+  const actual: Record<string, MonthActual & { from: string }> = {};
+  for (const d of docs) {
+    for (const [m, a] of Object.entries(d.facts?.monthly ?? {})) {
+      const cur = (actual[m] ??= { from: d.name });
+      if (a.tds !== undefined) cur.tds = a.tds;
+      if (a.gross !== undefined) cur.gross = a.gross;
+      if (a.items?.length) cur.items = a.items;
+      cur.from = d.name;
+    }
+  }
+  out.tdsKnown = Object.fromEntries(Object.entries(actual).filter(([, a]) => a.tds !== undefined).map(([m, a]) => [m, a.tds!]));
+  out.oneTimes = [
+    ...out.oneTimes.filter((o) => !o.id.startsWith('actual-')),
+    ...Object.entries(actual).flatMap(([m, a]) =>
+      (a.items ?? []).map((it, i) => ({
+        id: `actual-${m}-${i}`,
+        label: it.kind === 'arrears' && !/^arrears?$/i.test(it.label.trim()) ? `Arrears (${it.label})` : it.label,
+        kind: (it.kind === 'arrears' ? 'bonus' : /variable|performance|pli|incentive/i.test(it.label) ? 'variable' : 'bonus') as OneTime['kind'],
+        amount: it.amount,
+        month: m,
+        taxable: true,
+      })),
+    ),
+  ];
+  const tdsMonths = Object.keys(out.tdsKnown).sort();
+  if (tdsMonths.length)
+    notes.push(
+      `Recorded from your files: TDS for ${monthLong(tdsMonths[0])}${tdsMonths.length > 1 ? ` to ${monthLong(tdsMonths[tdsMonths.length - 1])}` : ''} (₹${Math.round(Object.values(out.tdsKnown).reduce((x, y) => x + y, 0)).toLocaleString('en-IN')})${Object.values(actual).some((a) => a.items?.length) ? ', and ' + Object.entries(actual).flatMap(([m, a]) => (a.items ?? []).map((it) => `${it.label} ₹${Math.round(it.amount).toLocaleString('en-IN')} in ${monthLong(m)}`)).join(', ') : ''}.`,
+    );
 
   // --- Old letters: say how they were used ---
   const base = docs.find((d) => d.kind === 'offer');

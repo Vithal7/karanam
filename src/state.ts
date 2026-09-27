@@ -120,17 +120,22 @@ export const dayBefore = (iso: string) => {
   return d.toISOString().slice(0, 10);
 };
 
-/** Spreads "TDS so far" evenly over the job's months before this month. */
+/**
+ * TDS for past months: amounts recorded from payslips or a tax sheet as they are; a year-to-date
+ * total you entered covers the remaining past months evenly.
+ */
 export function spreadTdsSoFar(emp: Employment, s: Scenario, total: number | null | undefined): Record<string, number> {
-  if (total === null || total === undefined) return {};
+  const recorded = emp.tdsKnown ?? {};
+  if (total === null || total === undefined) return recorded;
   const todayMonth = monthOf(s.today);
   const start = maxDate(emp.start || fyStart(s.fy), fyStart(s.fy));
   const end = emp.end || fyEnd(s.fy);
   const months: string[] = [];
   for (let m = monthOf(start); m <= monthOf(end) && m < todayMonth; m = addMonths(m, 1)) months.push(m);
-  // A job that ended in the past: the total covers all its months.
-  if (!months.length) return {};
-  return Object.fromEntries(months.map((m) => [m, total / months.length]));
+  const open = months.filter((m) => recorded[m] === undefined);
+  if (!open.length) return recorded;
+  const left = Math.max(0, total - months.reduce((a, m) => a + (recorded[m] ?? 0), 0));
+  return { ...recorded, ...Object.fromEntries(open.map((m) => [m, left / open.length])) };
 }
 
 /** The scenario fed to the engine, with UI-only answers applied. */

@@ -11,6 +11,7 @@ import { rs } from '../../format';
 import { useRules } from '../rulesContext';
 import { ExitQuestion } from '../ExitQuestion';
 import { OverlapFix } from '../OverlapFix';
+import { PrevVariableQuestion, needsPrevVariable } from '../PrevVariable';
 import { Money, Percent } from '../controls';
 import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
@@ -122,6 +123,7 @@ export function StoryStep(props: {
                     onNextStart={(v) => props.onChangeJob({ ...s.employers[k + 1], start: v, startSource: 'user' })}
                   />
                 )}
+                {needsPrevVariable(e, s.fy) && <PrevVariableQuestion emp={e} fy={s.fy} onChange={props.onChangeJob} />}
                 {(props.needs[e.id] ?? []).map((need) => (
                   <HikeQuestion need={need} onAnswer={(f) => props.onAnswerHike(e.id, need.docId, f)} />
                 ))}

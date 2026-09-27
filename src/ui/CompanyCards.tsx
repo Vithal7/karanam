@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import type { Result } from '../domain/compute';
-import { fyEnd, fyStart, maxDate, minDate, monthOf } from '../domain/fy';
+import { fyEnd, fyStart, maxDate, minDate, monthName, monthOf } from '../domain/fy';
 import type { Scenario } from '../domain/types';
 import { rs } from '../format';
 import { seriesClass } from './Chart';
@@ -71,6 +71,21 @@ export function CompanyCards(props: { s: Scenario; r: Result; children?: (index:
                 </div>
               </div>
             )}
+            {(() => {
+              const past = lines.filter((l) => l.month < todayMonth && l.factor > 0);
+              if (!past.length || e.totalsOnly) return null;
+              const est = past.filter((l) => l.tdsEstimated);
+              return (
+                <p class={`small ${est.length ? 'callout warn' : 'muted'}`}>
+                  {est.length
+                    ? `TDS for ${est.map((l) => monthName(l.month, false)).join(', ')} is an estimate. Add payslips or a tax computation sheet to record what was actually deducted.`
+                    : `TDS for past months is recorded from your files.`}
+                </p>
+              );
+            })()}
+            {k < n - 1 && !e.totalsOnly && e.end > s.today && e.variable?.annual ? (
+              <p class="muted small">This year's variable pay is usually forfeited if you leave before it's paid, so it isn't counted.</p>
+            ) : null}
             {k < n - 1 && !e.totalsOnly && e.end > s.today && (
               <p class="muted small">
                 {e.resignedOn

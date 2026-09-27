@@ -3,9 +3,11 @@ import { lastOf, type Result } from '../domain/compute';
 import { fyLabel, monthName } from '../domain/fy';
 import type { MonthLine, Scenario } from '../domain/types';
 import { pct, rs } from '../format';
-import { CashflowChart } from './Chart';
+import { CashflowChart, seriesClass } from './Chart';
 import { ItrSection } from './Itr';
-import type { StoryJob } from '../domain/story';
+import type { StoryJob, TimelineEvent } from '../domain/story';
+import { CompanyCards } from './CompanyCards';
+import { Timeline } from './Timeline';
 import { Field, Percent, Toggle } from './controls';
 
 function Stat(props: { label: string; value: string; sub?: string; tone?: 'good' | 'bad' }) {
@@ -90,7 +92,10 @@ function MonthTable({ r }: { r: Result }) {
                 <details>
                   <summary>
                     <span class="c-month">
-                      {monthName(m.month)}
+                      {monthName(m.month)}{' '}
+                      {[...new Set(m.lines.map((l) => l.employer))].map((k) => (
+                        <i class={`sw ${seriesClass(k, r.employers.length)}`} title={r.employers[k].name} />
+                      ))}
                     </span>
                     <span class="num r">{m.lines.length ? rs(m.gross) : '—'}</span>
                     <span class="num r">{m.lines.length ? rs(m.tds) : '—'}</span>
@@ -229,6 +234,7 @@ export function Results(props: {
   r: Result;
   s: Scenario;
   story: StoryJob[];
+  events: TimelineEvent[];
   showNextFy: boolean;
   setShowNextFy: (v: boolean) => void;
   onHike: (v: number) => void;
@@ -256,23 +262,9 @@ export function Results(props: {
         />
       </div>
 
-      {props.story.length > 0 && (
-        <details class="card story-short">
-          <summary>Your year in short</summary>
-          {props.story.map((j) => (
-            <div>
-              <strong>{j.name}</strong>
-              <ul class="story">
-                {j.lines.map((l) => (
-                  <li class={l.tone ?? ''}>{l.text}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </details>
-      )}
+      <CompanyCards s={s} r={r} />
 
-      <CashflowChart months={r.months} names={s.employers.map((e) => e.name)} />
+      <CashflowChart months={r.months} names={s.employers.map((e) => e.name)} today={s.today} />
       <MonthTable r={r} />
       {r.employers.some((e) => e.totalsOnly) && (
         <p class="muted small">
@@ -284,6 +276,11 @@ export function Results(props: {
         </p>
       )}
       <p class="muted small">Tap a month for the details. Faded months are already paid. Estimated TDS follows how payroll spreads tax over the months left in the year.</p>
+
+      <details class="card story-short">
+        <summary>What happens when</summary>
+        <Timeline events={props.events} today={s.today} jobs={s.employers.length} from={`${r.fy}-04-01`} />
+      </details>
 
       <WhyLess s={s} r={r} />
       <ItrSection r={r} />

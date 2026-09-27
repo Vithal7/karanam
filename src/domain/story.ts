@@ -5,6 +5,7 @@
 import { buyoutAmount, fnfItems, form12BMonth, type Result } from './compute';
 import { addMonths, daysInMonth, fyStart, monthLong, monthName, monthOf, parseDate } from './fy';
 import { arrearsFor, fixedMonthly } from './schedule';
+import { shortCompany } from '../format';
 import type { Employment, Scenario } from './types';
 
 export interface StoryLine {
@@ -127,4 +128,163 @@ export function buildStory(s: Scenario, r: Result): StoryJob[] {
     }
     return { id: e.id, name: e.name, isNew, lines };
   });
+}
+
+/* ---------------- One timeline across all jobs ---------------- */
+
+export interface TimelineEvent {
+  /** YYYY-MM-DD; month-level events use the 1st. */
+  date: string;
+  /** Month-level events show "Jul 2026" rather than a day. */
+  monthOnly?: boolean;
+  /** Index into Scenario.employers, or -1 for tax events. */
+  job: number;
+  text: string;
+  detail?: string;
+  tone?: 'good' | 'warn' | 'info';
+  /** Something you still need to do. */
+  action?: boolean;
+}
+
+/**
+ * Everything that happens to your money, in date order: joining, hikes, arrears, resignation,
+ * last day, F&F, joining bonus, buyout, Form 12B, year end and the ITR deadline. Wording follows
+ * the calendar: "Joined" before today, "Join" after.
+ */
+export function buildTimeline(s: Scenario, r: Result): TimelineEvent[] {
+  const today = s.today;
+  const thirty = s.settings.thirtyDayMonth;
+  const ev: TimelineEvent[] = [];
+  const past = (d: string) => d <= today;
+  const m1 = (m: string) => `${m}-01`;
+  /** Salary-day events (bonuses, arrears, F&F, buyout) happen at the end of their month. */
+  const payday = (m: string) => `${m}-28`;
+  const n = s.employers.length;
+
+  const nm = (e?: Employment) => shortCompany(e?.name || 'the next job');
+  s.employers.forEach((e, k) => {
+    const name = shortCompany(e.name || `Job ${k + 1}`);
+    const isNew = k === n - 1;
+    if (e.totalsOnly) {
+      if (e.end) ev.push({ date: e.end, job: k, text: `${name}: ${inr(e.totalsOnly.gross)} earned, ${inr(e.totalsOnly.tds)} tax deducted this year` });
+      return;
+    }
+    const st = e.structure;
+    const pay = `${inr(st.basic)} basic a month, ${inr(fixedMonthly(st))} fixed gross${e.ctc ? `, CTC ${inr(e.ctc)}` : ''}`;
+    if (e.start) ev.push({ date: e.start, job: k, text: `${past(e.start) ? 'Joined' : 'Join'} ${name}`, detail: pay });
+
+    // Hikes and arrears.
+    const arrears = arrearsFor(e, thirty);
+    let before = e.structure;
+    let beforeCtc = e.ctc || undefined;
+    for (const h of [...e.revisions].sort((a, b) => a.from.localeCompare(b.from))) {
+      const p = h.pct ?? (fixedMonthly(before) ? fixedMonthly(h.structure) / fixedMonthly(before) - 1 : 0);
+      const what = h.ctc && beforeCtc ? `CTC ${inr(beforeCtc)} → ${inr(h.ctc)}` : `fixed gross ${inr(fixedMonthly(before))} → ${inr(fixedMonthly(h.structure))} a month`;
+      ev.push({
+        date: m1(h.from),
+        monthOnly: true,
+        job: k,
+        text: `Hike at ${name}: ${what} (${p >= 0 ? '+' : ''}${pct(p)})`,
+        detail: `Basic ${inr(before.basic)} → ${inr(h.structure.basic)}.${h.scaled ? ' The letter gave only the total, so every component was raised by the same %.' : ''}`,
+        tone: 'good',
+      });
+      if (h.payoutMonth) {
+        const a = arrears.find((x) => x.month === h.payoutMonth);
+        ev.push({
+          date: payday(h.payoutMonth),
+          monthOnly: true,
+          job: k,
+          text: `${past(payday(h.payoutMonth)) ? 'New salary first paid' : 'New salary starts'}${a ? ` with ${inr(a.amount)} arrears` : ''}`,
+          detail: a ? `For ${monthName(h.from, false)}–${monthName(addMonths(h.payoutMonth, -1), false)}, when the hike applied but wasn't paid yet.` : undefined,
+          tone: 'good',
+        });
+      }
+      before = h.structure;
+      beforeCtc = h.ctc ?? beforeCtc;
+    }
+
+    // Leaving.
+    if (!isNew && e.end) {
+      const exitDocs = e.docs.some((d) => d.kind === 'resignation' || d.kind === 'fnf');
+      if (e.resignedOn) ev.push({ date: e.resignedOn, job: k, text: `${past(e.resignedOn) ? 'Resigned from' : 'Resign from'} ${name}` });
+      const f = fnfItems(e, s.fy, thirty);
+      const last = r.employers[k]?.lines.find((l) => l.month === monthOf(e.end));
+      let prorata: string | undefined;
+      if (f && last && f.lastMonthFactor > 0 && f.lastMonthFactor < 1) {
+        const { y, m } = parseDate(f.lastMonth);
+        const of = thirty ? 30 : daysInMonth(y, m);
+        prorata = `${monthName(f.lastMonth, false)} salary for ${Math.round(f.lastMonthFactor * of)} of ${of} days: ${inr(last.basic + last.hra + last.special + last.others)} gross.`;
+      }
+      ev.push({
+        date: e.end,
+        job: k,
+        text: `Last day at ${name}${exitDocs || past(e.end) ? '' : ' (assumed)'}`,
+        detail: [prorata, exitDocs ? undefined : `Taken as the day before ${nm(s.employers[k + 1])} starts. Add your resignation email when you have it.`].filter(Boolean).join(' '),
+        tone: exitDocs ? undefined : 'info',
+      });
+      if (f && (f.leaveEncashment || f.noticeRecovery || f.clawback || f.penalty || f.gratuity)) {
+        const parts = [
+          f.leaveEncashment ? `+${inr(f.leaveEncashment)} leave encashment${f.leaveFromSlip ? '' : ` (${e.fnf!.leaveDays} days × ${inr(f.perDay)}, ${f.leaveRateLabel})`}` : '',
+          f.gratuity ? `+${inr(f.gratuity)} gratuity` : '',
+          f.noticeRecovery ? `−${inr(f.noticeRecovery)} notice recovery${f.noticeFromSlip ? '' : ` (${e.fnf!.noticeDaysRecovered} days × ${inr(f.noticePerDay)})`}` : '',
+          f.clawback ? `−${inr(f.clawback)} bonus clawback` : '',
+          f.penalty ? `−${inr(f.penalty)} penalty` : '',
+        ].filter(Boolean);
+        ev.push({ date: payday(f.month), monthOnly: true, job: k, text: `F&F from ${name}`, detail: parts.join(' · '), tone: f.noticeRecovery + f.clawback + f.penalty > f.leaveEncashment + f.gratuity ? 'warn' : 'good' });
+      }
+    }
+
+    // Joining terms at a later job.
+    if (k > 0) {
+      const prev = s.employers[k - 1];
+      const pf = fnfItems(prev, s.fy, thirty);
+      const f12 = form12BMonth(s, k);
+      if (f12) ev.push({ date: m1(addMonths(f12, 0)), monthOnly: true, job: k, text: `Give ${name} Form 12B before this salary`, detail: `So TDS here counts what you earned at ${nm(prev)}.`, action: !past(m1(f12)) });
+      else ev.push({ date: e.start, job: k, text: `No Form 12B for ${name}`, detail: `It will deduct too little tax; the difference is due when you file.`, tone: 'warn' });
+      if (pf) {
+        const { amount, claimed } = buyoutAmount(pf, e, prev);
+        const mode = e.buyout?.mode ?? (prev.fnf?.buyoutByNext ? 'actuals' : 'none');
+        const paid = r.employers[k]?.lines.flatMap((l) => l.oneTimes.map((o) => ({ o, month: l.month }))).find((x) => x.o.kind === 'buyout');
+        if (mode !== 'none' && amount > 0 && paid)
+          ev.push({ date: payday(paid.month), monthOnly: true, job: k, text: `${name} reimburses your notice buyout: ${inr(amount)}`, detail: amount < claimed ? `Capped: ${inr(claimed - amount)} of the ${inr(claimed)} you paid isn't covered.` : undefined, tone: amount < claimed ? 'warn' : 'good' });
+        else if (mode === 'none' && pf.noticeRecovery + pf.clawback > 0) ev.push({ date: e.start, job: k, text: `No notice buyout from ${name}`, detail: `You bear the ${inr(pf.noticeRecovery + pf.clawback)} recovered by ${nm(prev)}.`, tone: 'warn' });
+      }
+    }
+    for (const o of e.oneTimes) {
+      if (o.kind === 'joining') {
+        const until = o.clawbackMonths ? addMonths(monthOf(e.start), o.clawbackMonths) : undefined;
+        ev.push({
+          date: payday(o.month),
+          monthOnly: true,
+          job: k,
+          text: `Joining bonus from ${name}: ${inr(o.amount)}`,
+          detail: until ? `Repayable if you leave before ${monthLong(until)}.` : undefined,
+          tone: 'good',
+        });
+      } else if (o.amount) ev.push({ date: payday(o.month), monthOnly: true, job: k, text: `${o.label} from ${name}: ${inr(o.amount)}`, tone: 'good' });
+    }
+    if (isNew && e.variable?.annual && e.variable.month) {
+      const v = r.nextFy.lines.flatMap((l) => l.oneTimes).find((o) => o.kind === 'variable') ?? r.employers[k]?.lines.flatMap((l) => l.oneTimes).find((o) => o.kind === 'variable');
+      if (v) ev.push({ date: payday(e.variable.month), monthOnly: true, job: k, text: `Variable pay from ${name}: about ${inr(v.amount)}`, detail: `${pct(e.variable.payoutPct)} payout${e.variable.prorate ? ', prorated for your first year' : ''}.`, tone: 'good' });
+    }
+  });
+
+  // Year end and ITR.
+  const fyEndDate = `${s.fy + 1}-03-31`;
+  const bal = r.filing.balance;
+  ev.push({
+    date: fyEndDate,
+    job: -1,
+    text: `Financial year ends. Tax for the year: ${inr(r.filing.total)}`,
+    detail: bal < 0 ? `Your employers will have deducted ${inr(-bal)} more than needed.` : bal > 0 ? `${inr(bal)} more than your employers deduct is still due.` : undefined,
+  });
+  ev.push({
+    date: `${s.fy + 1}-07-31`,
+    job: -1,
+    text: `File your ITR by 31 Jul ${s.fy + 1}: ${bal < 0 ? `${inr(-bal)} refund` : bal > 0 ? `pay ${inr(bal)} first` : 'nothing to pay'}`,
+    tone: bal < 0 ? 'good' : bal > 0 ? 'warn' : undefined,
+    action: true,
+  });
+
+  return ev.sort((a, b) => a.date.localeCompare(b.date) || a.job - b.job);
 }

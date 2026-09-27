@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { compute } from './domain/compute';
 import { fyLabel, fyStart, maxDate, monthOf } from './domain/fy';
-import { buildStory } from './domain/story';
-import type { DocRecord, Employment } from './domain/types';
+import { buildStory, buildTimeline } from './domain/story';
+import type { DocRecord, Employment, Facts } from './domain/types';
 import { applyEvents } from './extract/events';
 import { assignDocs, blankJob, docFromText, orderJobs } from './extract/intake';
 import { applyDocs, mergeDocs, baseDocs } from './extract/merge';
@@ -42,6 +42,7 @@ function rebuild(x: AppState, ids: Iterable<string>, rules: Rules): AppState {
   const marks = { ...x.marks };
   const sources = { ...x.sources };
   const notes = { ...x.notes };
+  const needs = { ...x.needs };
   const tdsSoFar = { ...x.tdsSoFar };
   let employers = x.scenario.employers.map((e) => {
     if (!todo.has(e.id)) return e;
@@ -50,6 +51,7 @@ function rebuild(x: AppState, ids: Iterable<string>, rules: Rules): AppState {
     marks[e.id] = a.marks;
     sources[e.id] = a.sources;
     notes[e.id] = ev.notes;
+    needs[e.id] = ev.needs;
     if (a.ytdTds && (tdsSoFar[e.id] === undefined || tdsSoFar[e.id] === null)) tdsSoFar[e.id] = a.ytdTds.amount;
     return ev.emp;
   });
@@ -66,7 +68,7 @@ function rebuild(x: AppState, ids: Iterable<string>, rules: Rules): AppState {
   const last = employers[employers.length - 1];
   // The offer's own tdsSoFar never applies (its TDS is projected).
   delete tdsSoFar[last.id];
-  return { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, last.start) }, marks, sources, notes, tdsSoFar };
+  return { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, last.start) }, marks, sources, notes, needs, tdsSoFar };
 }
 
 export function App() {
@@ -96,11 +98,12 @@ export function App() {
       return { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, last.start) } };
     });
 
-  /** New files: read them, sort them into jobs, rebuild those jobs. */
+  /** New files: read them, sort them into jobs by company and date, rebuild those jobs. */
   const ingest = (files: ReadFile[]) =>
     setSt((x) => {
       const docs = files.map((f) => docFromText(f.text, f.name));
-      const { employers, unassigned, changed } = assignDocs(x.scenario.employers, docs, x.scenario.fy);
+      const texts = Object.fromEntries(docs.map((d, i) => [d.id, files[i].text]));
+      const { employers, unassigned, changed } = assignDocs(x.scenario.employers, docs, x.scenario.fy, texts);
       const warnings = { ...x.warnings };
       for (const f of files) {
         const d = docs.find((dd) => dd.name === f.name);
@@ -137,6 +140,13 @@ export function App() {
       const employers = x.scenario.employers.map((j) => (j.id === id ? { ...j, docs: [...j.docs, ...docs] } : j));
       return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [id], rules);
     });
+  const answerHike = (jobId: string, docId: string, facts: Partial<Facts>) =>
+    setSt((x) => {
+      const employers = x.scenario.employers.map((j) =>
+        j.id === jobId ? { ...j, docs: j.docs.map((d) => (d.id === docId ? { ...d, facts: { ...(d.facts ?? {}), ...facts } } : d)) } : j,
+      );
+      return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [jobId], rules);
+    });
   const addJob = () =>
     setSt((x) => {
       const first = x.scenario.employers[0];
@@ -154,6 +164,7 @@ export function App() {
   const effective = useMemo(() => effectiveScenario(st), [st]);
   const result = useMemo(() => (['story', 'results'].includes(st.step) && s.employers.length ? compute(effective, rules) : null), [effective, rules, st.step, s.employers.length]);
   const story = useMemo(() => (result ? buildStory(effective, result) : []), [effective, result]);
+  const events = useMemo(() => (result ? buildTimeline(effective, result) : []), [effective, result]);
 
   const editIndex = st.step === 'job-edit' ? s.employers.findIndex((j) => j.id === st.editing) : -1;
   const editing = editIndex >= 0 ? s.employers[editIndex] : undefined;
@@ -238,9 +249,12 @@ export function App() {
 
           {st.step === 'story' && (
             <StoryStep
-              s={s}
-              story={story}
+              s={effective}
+              r={result}
+              events={events}
               notes={st.notes}
+              needs={st.needs}
+              onAnswerHike={answerHike}
               inbox={st.inbox}
               onAssign={assign}
               onDiscard={(id) => update({ inbox: st.inbox.filter((d) => d.id !== id) })}
@@ -305,6 +319,7 @@ export function App() {
                 r={result}
                 s={effective}
                 story={story}
+                events={events}
                 showNextFy={st.showNextFy}
                 setShowNextFy={(v) => update({ showNextFy: v })}
                 onHike={(v) => update({ scenario: { ...s, settings: { ...s.settings, nextFyHike: v } } })}

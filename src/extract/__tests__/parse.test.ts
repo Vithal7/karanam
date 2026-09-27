@@ -118,3 +118,20 @@ Dear Candidate, your date of joining will be 12th November 2026.`);
     expect(r.doj?.date).toBe('2026-11-12');
   });
 });
+
+describe('findEmployer', async () => {
+  const { findEmployer } = await import('../parse');
+  it('ignores salary rows that look like names', () => {
+    expect(findEmployer('Offer\nComponent Annual\nPerformance Linked Incentive 2,00,000\nBasic 17,10,000')).toBeUndefined();
+    expect(
+      findEmployer(`LinkedIn Technology Information Private Limited
+Offer letter
+Performance Linked Incentive 2,00,000`),
+    ).toBe('LinkedIn Technology Information Private Limited');
+  });
+  it('reads upper-case letterheads and prefers the header', () => {
+    expect(findEmployer(`SUZLON ENERGY LIMITED
+Appointment Letter
+You will be governed by the policies of Suzlon Energy Limited.`)).toBe('Suzlon Energy Limited');
+  });
+});

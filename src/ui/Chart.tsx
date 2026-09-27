@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks';
 import type { MonthSummary } from '../domain/compute';
 import { monthName } from '../domain/fy';
-import { rs, rsShort } from '../format';
+import { rs, rsShort, shortCompany } from '../format';
 
 const W = 360;
 const H = 200;
@@ -18,7 +18,7 @@ function niceMax(v: number) {
 export const seriesClass = (index: number, count: number) => (index === count - 1 ? 's1' : `s${index + 2}`);
 
 /** Stacked monthly in-hand bars, one colour per job, with a tap/hover tooltip. */
-export function CashflowChart(props: { months: MonthSummary[]; names: string[] }) {
+export function CashflowChart(props: { months: MonthSummary[]; names: string[]; today?: string }) {
   const [hover, setHover] = useState<number | null>(null);
   const ms = props.months;
   const n = props.names.length;
@@ -41,6 +41,9 @@ export function CashflowChart(props: { months: MonthSummary[]; names: string[] }
   };
 
   const tip = hover !== null ? ms[hover] : null;
+  // Where today falls: inside its month's slot, by day of month.
+  const ti = props.today ? ms.findIndex((m) => m.month === props.today!.slice(0, 7)) : -1;
+  const todayX = ti >= 0 ? PAD.l + (ti + Math.min(1, Number(props.today!.slice(8, 10)) / 31)) * slot : null;
   return (
     <figure class="chart">
       <figcaption class="chart-head">
@@ -50,7 +53,7 @@ export function CashflowChart(props: { months: MonthSummary[]; names: string[] }
             present[k] ? (
               <span>
                 <i class={`sw ${seriesClass(k, n)}`} />
-                {name || `Job ${k + 1}`}
+                {shortCompany(name || `Job ${k + 1}`)}
               </span>
             ) : null,
           )}
@@ -66,6 +69,14 @@ export function CashflowChart(props: { months: MonthSummary[]; names: string[] }
               </text>
             </g>
           ))}
+          {todayX !== null && (
+            <g class="today-mark" aria-hidden="true">
+              <line x1={todayX} x2={todayX} y1={PAD.t - 4} y2={PAD.t + ih} />
+              <text x={todayX + 3} y={PAD.t + 4} class="tick">
+                Today
+              </text>
+            </g>
+          )}
           {ms.map((m, i) => {
             const x = PAD.l + i * slot + (slot - bw) / 2;
             const st = stacks[i];
@@ -103,7 +114,7 @@ export function CashflowChart(props: { months: MonthSummary[]; names: string[] }
             {tip.lines.map((l) => (
               <div class="tt-row">
                 <i class={`sw ${seriesClass(l.employer, n)}`} />
-                <span>{l.employerName}</span>
+                <span>{shortCompany(l.employerName)}</span>
                 <span class="num">{rs(l.inHand)}</span>
               </div>
             ))}

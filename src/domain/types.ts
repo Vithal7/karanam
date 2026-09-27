@@ -128,6 +128,8 @@ export interface Facts {
   effectiveFrom?: string;
   payoutMonth?: string;
   incrementPct?: number;
+  /** Increment given as an annual amount ("increment of Rs. 2,40,000"). */
+  incrementAmount?: number;
   revisedCtc?: number;
   oldCtc?: number;
   lastWorkingDay?: string;

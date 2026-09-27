@@ -150,3 +150,92 @@ describe('story and ITR', async () => {
     expect(t.checklist.join(' ')).toMatch(/standard deduction only once/);
   });
 });
+
+describe('time axis first, even without company names', () => {
+  // Letters whose letterheads were images: no company in the text. File names and dates must do.
+  const appointment = docFromText(`Appointment Letter
+Dear Vithal, we are pleased to appoint you. Your date of joining will be 6th January 2025.
+Component Monthly Annual
+Basic 50,000 6,00,000
+HRA 25,000 3,00,000
+Special Allowance 45,000 5,40,000
+Total CTC 15,00,000`, 'Vithal Suzlon Appointment Letter (1).pdf');
+  const appraisal = docFromText(`Salary Revision
+Date: 25/06/2026
+We are pleased to inform you that your annual CTC has been revised to Rs. 18,00,000 with effect from 1st July 2026.`, 'Suzlon Appraisal Letter 2025-26.pdf');
+  const newOffer = docFromText(`LinkedIn Technology Information Private Limited
+Offer Letter
+Your date of joining will be 2nd November 2026.
+Component Monthly Annual
+Basic 1,42,500 17,10,000
+HRA 71,250 8,55,000
+Performance Linked Incentive 2,00,000
+Total CTC 38,00,000
+Joining Bonus: Rs. 1,50,000 payable with your first salary.`, 'Vithal LinkedIn Offer.pdf');
+
+  const { employers, unassigned } = assignDocs([blankJob('New job', '2026-09-27')], [newOffer, appraisal, appointment], 2026);
+
+  it('keeps each job to its own letters', () => {
+    expect(unassigned).toEqual([]);
+    expect(employers.map((e) => e.name)).toEqual(['Suzlon', 'LinkedIn Technology Information Private Limited']);
+    expect(employers[0].docs.map((d) => d.name).sort()).toEqual(['Suzlon Appraisal Letter 2025-26.pdf', 'Vithal Suzlon Appointment Letter (1).pdf']);
+    expect(employers[1].docs.map((d) => d.name)).toEqual(['Vithal LinkedIn Offer.pdf']);
+  });
+
+  it('never files a letter under a job that started after it', () => {
+    const lone = assignDocs([blankJob('New job', '2026-09-27')], [newOffer, docFromText(appraisal.name && `Salary Revision\nDate: 25/06/2026\nYour CTC has been revised to Rs. 18,00,000 with effect from 1st July 2026.`, 'revision.pdf')], 2026);
+    expect(lone.employers).toHaveLength(2);
+    expect(lone.employers[0].docs[0].kind).toBe('appraisal');
+    expect(lone.employers[1].docs[0].kind).toBe('offer');
+  });
+
+  it('reads "CTC has been revised to"', () => {
+    expect(appraisal.facts?.revisedCtc).toBe(1800000);
+    expect(appraisal.facts?.effectiveFrom).toBe('2026-07-01');
+  });
+});
+
+describe('timeline for a move that has not happened yet', async () => {
+  const { buildTimeline } = await import('../../domain/story');
+  const appointment = docFromText(`SUZLON ENERGY LIMITED
+Appointment Letter
+Your date of joining will be 6th January 2025.
+Component Monthly Annual
+Basic 75,000 9,00,000
+HRA 37,500 4,50,000
+Special Allowance 62,500 7,50,000
+Total CTC 22,00,000`, 'Vithal Suzlon Appointment Letter (1).pdf');
+  const appraisal = docFromText(`Date: 25/06/2026\nSubject: Annual Salary Revision\nYour annual CTC has been revised to Rs. 25,30,000 with effect from 1st July 2026.`, 'Suzlon Appraisal Letter 2025-26.pdf');
+  const offer = docFromText(`LinkedIn Technology Information Private Limited
+Offer Letter
+Your date of joining will be 2nd November 2026.
+Component Monthly Annual
+Basic Salary 1,42,500 17,10,000
+Performance Linked Incentive 2,00,000
+Total CTC 38,00,000
+Joining Bonus: Rs. 1,50,000 payable with your first salary.`, 'Vithal LinkedIn Offer.pdf');
+  const { employers } = assignDocs([blankJob('New job', '2026-09-27')], [offer, appraisal, appointment], 2026);
+  const built = employers.map((e) => applyEvents(applyDocs(e, {}, bundledRules).emp, bundledRules, '2026-04').emp);
+  built[0].end = '2026-11-01';
+  const s = { fy: 2026, today: '2026-09-27', settings: { thirtyDayMonth: false, nextFyHike: 0 }, employers: built };
+  const r = compute(s);
+  const t = buildTimeline(s, r);
+  const texts = t.map((e) => e.text);
+
+  it('names both companies correctly', () => {
+    expect(built.map((e) => e.name)).toEqual(['Suzlon Energy Limited', 'LinkedIn Technology Information Private Limited']);
+  });
+  it('keeps the old job on its own salary until the move', () => {
+    const oct = r.employers[0].lines.find((l) => l.month === '2026-10')!;
+    expect(oct.basic).toBe(86250);
+    expect(r.employers[1].lines[0].month).toBe('2026-11');
+  });
+  it('orders events and uses the right tense', () => {
+    const i = (re: RegExp) => texts.findIndex((x) => re.test(x));
+    expect(texts[i(/Joined Suzlon/)]).toBe('Joined Suzlon Energy');
+    expect(i(/Hike at Suzlon/)).toBeLessThan(i(/Last day at Suzlon/));
+    expect(i(/^Join LinkedIn/)).toBeLessThan(i(/Joining bonus/));
+    expect(t[i(/^Join LinkedIn/)].date > s.today).toBe(true);
+    expect(texts.some((x) => /^Joined LinkedIn/.test(x))).toBe(false);
+  });
+});

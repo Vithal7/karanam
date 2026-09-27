@@ -1,9 +1,12 @@
-import { MAX_EMPLOYERS, validateEmployers } from '../../domain/compute';
-import { fyLabel } from '../../domain/fy';
-import type { StoryJob } from '../../domain/story';
-import type { DocRecord, Scenario } from '../../domain/types';
+import { useState } from 'preact/hooks';
+import { MAX_EMPLOYERS, validateEmployers, type Result } from '../../domain/compute';
+import { fyLabel, monthLong } from '../../domain/fy';
+import type { TimelineEvent } from '../../domain/story';
+import type { DocRecord, Facts, Scenario } from '../../domain/types';
+import { CompanyCards } from '../CompanyCards';
 import { Continue } from '../Continue';
-import { seriesClass } from '../Chart';
+import { Money, Percent } from '../controls';
+import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
 
 const KIND: Record<DocRecord['kind'], string> = {
@@ -14,11 +17,45 @@ const KIND: Record<DocRecord['kind'], string> = {
   fnf: 'F&F slip',
 };
 
-/** The year's jobs as a story, with any files we couldn't place. */
+export interface HikeNeed {
+  docId: string;
+  docName: string;
+  month: string;
+}
+
+/** Asks for the size of a hike the letter didn't state clearly. */
+function HikeQuestion(props: { need: HikeNeed; onAnswer: (f: Partial<Facts>) => void }) {
+  const [ctc, setCtc] = useState(0);
+  const [pct, setPct] = useState(0);
+  return (
+    <div class="callout warn ask">
+      <p>
+        <strong>{props.need.docName}</strong>: how big was the hike from {monthLong(props.need.month)}? Enter either one.
+      </p>
+      <div class="grid2">
+        <div>
+          <span class="field-label">New CTC per year</span>
+          <Money value={ctc} onChange={setCtc} ariaLabel="New CTC per year" />
+        </div>
+        <div>
+          <span class="field-label">Or hike %</span>
+          <Percent value={pct} onChange={setPct} ariaLabel="Hike percent" />
+        </div>
+      </div>
+      <button type="button" class="btn small primary" disabled={!ctc && !pct} onClick={() => props.onAnswer(ctc ? { revisedCtc: ctc } : { incrementPct: pct })}>
+        Use this
+      </button>
+    </div>
+  );
+}
+
+/** Your jobs, the money each puts in your bank, and one timeline of what happens when. */
 export function StoryStep(props: {
   s: Scenario;
-  story: StoryJob[];
+  r: Result | null;
+  events: TimelineEvent[];
   notes: Record<string, string[]>;
+  needs: Record<string, HikeNeed[]>;
   inbox: DocRecord[];
   onAssign: (docId: string, target: string) => void;
   onDiscard: (docId: string) => void;
@@ -26,14 +63,15 @@ export function StoryStep(props: {
   onEdit: (id: string) => void;
   onRemove: (id: string) => void;
   onAddJob: () => void;
+  onAnswerHike: (jobId: string, docId: string, f: Partial<Facts>) => void;
   onNext: () => void;
 }) {
-  const { s } = props;
+  const { s, r } = props;
   const errors = validateEmployers(s);
   const n = s.employers.length;
   return (
     <>
-      <p class="lead">Here's what your documents say about {fyLabel(s.fy)}. Check each job, then see the money.</p>
+      <p class="lead">Here's {fyLabel(s.fy)} as your documents tell it. Check each company's numbers, then see the money month by month.</p>
 
       {props.inbox.length > 0 && (
         <div class="card conflicts">
@@ -64,22 +102,15 @@ export function StoryStep(props: {
         </div>
       )}
 
-      <ol class="timeline">
-        {props.story.map((j, k) => {
-          const e = s.employers[k];
-          return (
-            <li class="tl-item">
-              <span class={`tl-dot ${seriesClass(k, n)}`} aria-hidden="true" />
-              <div class="card tl-card">
-                <div class="tl-head">
-                  <strong>{j.name || `Job ${k + 1}`}</strong>
-                  <span class={`badge ${j.isNew ? 'new' : ''}`}>{j.isNew ? (n > 1 ? 'New job' : 'Your job') : 'Earlier job'}</span>
-                </div>
-                <ul class="story">
-                  {j.lines.map((l) => (
-                    <li class={l.tone ?? ''}>{l.text}</li>
-                  ))}
-                </ul>
+      {r && (
+        <CompanyCards s={s} r={r} badges>
+          {(k) => {
+            const e = s.employers[k];
+            return (
+              <>
+                {(props.needs[e.id] ?? []).map((need) => (
+                  <HikeQuestion need={need} onAnswer={(f) => props.onAnswerHike(e.id, need.docId, f)} />
+                ))}
                 {(props.notes[e.id] ?? []).map((t) => (
                   <p class="callout warn small">{t}</p>
                 ))}
@@ -96,15 +127,20 @@ export function StoryStep(props: {
                     {e.docs.length} file{e.docs.length === 1 ? '' : 's'}
                   </span>
                 </div>
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+              </>
+            );
+          }}
+        </CompanyCards>
+      )}
+
+      <div class="card">
+        <h3>What happens when</h3>
+        <Timeline events={props.events} today={s.today} jobs={n} />
+      </div>
 
       <div class="card">
         <h3>Missing something?</h3>
-        <p class="muted small">Add another appraisal letter, payslip, resignation email or F&F slip. It goes to the right job automatically.</p>
+        <p class="muted small">Add another appraisal letter, payslip, resignation email or F&F slip. It goes to the right job by company and date.</p>
         <Uploader compact buttonLabel="+ Add more documents" onFiles={props.onAddFiles} />
         {n < MAX_EMPLOYERS && (
           <button type="button" class="btn link" onClick={props.onAddJob}>

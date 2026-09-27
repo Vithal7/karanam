@@ -3,7 +3,7 @@
  * paid late), payslips pin the actual breakup after a hike, resignation and F&F papers set the
  * exit, and new-offer terms set the buyout and joining-bonus clawback.
  */
-import { addMonths, monthName, monthOf } from '../domain/fy';
+import { addMonths, monthLong, monthOf } from '../domain/fy';
 import { fixedMonthly } from '../domain/schedule';
 import type { Employment, FnF, Revision, Structure } from '../domain/types';
 import { epfCeiling, type Rules } from '../rules';
@@ -39,11 +39,14 @@ export interface EventsResult {
   emp: Employment;
   /** Plain-language notes for the story view (assumptions, stale letters). */
   notes: string[];
+  /** Appraisal letters whose hike size we couldn't read: ask the user. */
+  needs: { docId: string; docName: string; month: string }[];
 }
 
 export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string): EventsResult {
   const docs = orderDocs(emp.docs);
   const notes: string[] = [];
+  const needs: EventsResult['needs'] = [];
   const out: Employment = { ...emp, revisions: emp.revisions.filter((r) => r.source !== 'doc:appraisal' && !r.source?.startsWith('doc:appraisal')) };
 
   // --- Hikes from appraisal letters, oldest first ---
@@ -61,25 +64,27 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
     let structure: Structure;
     let k: number | undefined;
     let scaled = false;
+    let revisedCtc: number | undefined = f.revisedCtc ?? d.fields.ctc;
     if (given) {
       structure = given;
       k = fixedMonthly(prev) ? fixedMonthly(given) / fixedMonthly(prev) : undefined;
     } else {
       const oldCtc = f.oldCtc ?? prevCtc;
+      revisedCtc ??= f.incrementAmount && oldCtc ? oldCtc + f.incrementAmount : undefined;
       if (f.incrementPct) k = 1 + f.incrementPct;
-      else if (f.revisedCtc && oldCtc) k = f.revisedCtc / oldCtc;
-      else if (f.revisedCtc && fixedMonthly(prev)) {
-        k = f.revisedCtc / estimateCtc(prev, from, rules);
+      else if (revisedCtc && oldCtc) k = revisedCtc / oldCtc;
+      else if (revisedCtc && fixedMonthly(prev)) {
+        k = revisedCtc / estimateCtc(prev, from, rules);
         notes.push(`${d.name}: your CTC before this hike wasn't in the letters, so it was estimated from your salary breakup. Check the new salary.`);
       }
       if (!k) {
-        notes.push(`${d.name}: couldn't tell how big the hike is. Enter the new salary for ${monthName(from)} under this job.`);
+        needs.push({ docId: d.id, docName: d.name, month: from });
         continue;
       }
       structure = scale(prev, k);
       scaled = true;
     }
-    const ctc = f.revisedCtc ?? (prevCtc && k ? Math.round(prevCtc * k) : undefined);
+    const ctc = revisedCtc ?? (prevCtc && k ? Math.round(prevCtc * k) : undefined);
     const payoutMonth = f.payoutMonth && f.payoutMonth > from ? f.payoutMonth : undefined;
     hikes.push({ from, payoutMonth, structure, ctc, pct: k ? k - 1 : undefined, source: `doc:appraisal:${d.name}`, scaled });
     prev = structure;
@@ -102,7 +107,7 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
   const base = docs.find((d) => d.kind === 'offer');
   if (base?.docDate && monthOf(base.docDate) < addMonths(fyStartMonth, -12) && !hikes.length && !docs.some((d) => d.kind === 'payslip' && d.docDate && monthOf(d.docDate) >= fyStartMonth)) {
     notes.push(
-      `${base.name} is from ${monthName(monthOf(base.docDate))}. It's used as your salary at ${emp.name || 'this job'}; if you've had a hike since, add the appraisal letter or a recent payslip.`,
+      `${base.name} is from ${monthLong(monthOf(base.docDate))}. It's used as your salary at ${emp.name || 'this job'}; if you've had a hike since, add the appraisal letter or a recent payslip.`,
     );
   }
 
@@ -134,6 +139,6 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
   const claw = offerFacts.find((f) => f.joiningClawbackMonths)?.joiningClawbackMonths;
   if (claw) out.oneTimes = out.oneTimes.map((o) => (o.kind === 'joining' ? { ...o, clawbackMonths: claw } : o));
 
-  return { emp: out, notes };
+  return { emp: out, notes, needs };
 }
 

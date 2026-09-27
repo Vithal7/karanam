@@ -24,6 +24,8 @@ export interface AppState {
   notes: Record<string, string[]>;
   /** Files whose company we couldn't tell; the user picks the job. */
   inbox: DocRecord[];
+  /** Per job: appraisal letters whose hike size we need from the user. */
+  needs: Record<string, { docId: string; docName: string; month: string }[]>;
   /** Per job: total TDS deducted so far this FY (from the latest payslip). */
   tdsSoFar: Record<string, number | null>;
   showNextFy: boolean;
@@ -80,6 +82,7 @@ export function initialState(): AppState {
     warnings: {},
     notes: {},
     inbox: [],
+    needs: {},
     tdsSoFar: {},
     showNextFy: false,
   };
@@ -156,7 +159,12 @@ export const save = (st: AppState) => {
 export const load = (): AppState | null => {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? migrate(JSON.parse(raw)) : null;
+    const st = raw ? migrate(JSON.parse(raw)) : null;
+    if (!st) return null;
+    // "Today" moves on between visits: past vs upcoming depends on it.
+    const today = todayISO();
+    const last = st.scenario.employers[st.scenario.employers.length - 1];
+    return { ...st, scenario: { ...st.scenario, today, fy: fyFor(today, last?.start ?? today) } };
   } catch {
     return null;
   }
@@ -175,7 +183,7 @@ const V2_STEPS: Record<string, StepId> = { 'offer-upload': 'upload', 'offer-revi
 /** Saved state from older versions: v1 (one current job + offer), v2 (up to 3 jobs). */
 export function migrate(x: any): AppState | null {
   if (!x || typeof x !== 'object') return null;
-  if (x.v === 3) return x as AppState;
+  if (x.v === 3) return { needs: {}, ...x } as AppState;
   if (x.v === 2) return { ...x, v: 3, step: V2_STEPS[x.step] ?? 'story', notes: {}, inbox: [] } as AppState;
   const s = x.scenario;
   if (!s?.next) return null;

@@ -338,12 +338,7 @@ export function parseText(text: string): Extracted {
   }
 
   // Employer name: "<Name> Private Limited / Pvt Ltd / Limited / LLP / Inc".
-  // A company name is a run of capitalised words ending in a legal suffix ("Sigma Systems Pvt Ltd").
-  const NAME = "((?:[A-Z0-9][\\w&.'’-]*[ \\t]+){1,6}?)";
-  const em =
-    new RegExp(`${NAME}(Private[ \\t]+Limited|Pvt\\.?[ \\t]*Ltd\\.?|Limited|Ltd\\.?|LLP|Inc\\.?)`).exec(text) ??
-    new RegExp(`${NAME}(Technologies|Solutions|Systems|Services|Labs|Software)\\b`).exec(text);
-  const employer = em ? `${em[1]}${em[2]}`.trim().replace(/^(for|from|at|with|of|by|to|dear)\s+/i, '') : undefined;
+  const employer = findEmployer(text);
 
   // Sanity check against CTC.
   if (ctc) {
@@ -400,4 +395,44 @@ export function findYtdTds(lines: string[], text: string): number | undefined {
       if (tokens.length >= 2) return Math.max(...tokens);
     }
   return undefined;
+}
+
+// Words that make a capitalised run a salary row, not a company ("Performance Linked Incentive").
+const NOT_COMPANY = /\b(allowance|incentive|bonus|basic|salary|pay|fund|provident|gratuity|insurance|compensation|ctc|total|amount|deduction|tax|annexure|component|monthly|annual|reimbursement|variable|performance|linked|leave|notice|period|dear|subject|date|offer|letter|appointment|employee|designation|grade|band)\b/i;
+const SUFFIX_RE = "(Private[ \\t]+Limited|PRIVATE[ \\t]+LIMITED|Pvt\\.?[ \\t]*Ltd\\.?|PVT\\.?[ \\t]*LTD\\.?|Limited|LIMITED|Ltd\\.?|LTD\\.?|LLP|Inc\\.?|INC\\.?|Corporation|CORPORATION)(?![A-Za-z])";
+const WEAK_SUFFIX_RE = "(Technologies|TECHNOLOGIES|Solutions|SOLUTIONS|Systems|SYSTEMS|Services|SERVICES|Labs|Software|SOFTWARE|Energy|ENERGY|Industries|INDUSTRIES)(?![A-Za-z])";
+
+/** "SUZLON ENERGY LIMITED" -> "Suzlon Energy Limited"; short acronyms (TCS, IBM) stay. */
+function tidyName(n: string) {
+  return n
+    .split(/\s+/)
+    .map((w) => (w.length > 4 && w === w.toUpperCase() ? w.charAt(0) + w.slice(1).toLowerCase() : w))
+    .join(' ');
+}
+
+/**
+ * The employer's name: a run of capitalised words ending in a legal suffix. Names in the letter
+ * head (first lines) and names repeated in the text win; salary-table rows never count.
+ */
+export function findEmployer(text: string): string | undefined {
+  const lines = text.split(/\n/);
+  const cands = new Map<string, { name: string; score: number }>();
+  const run = "((?:[A-Z0-9][\\w&.'’-]*[ \\t]+){1,5}?)";
+  lines.forEach((line, i) => {
+    for (const [suffix, weight] of [[SUFFIX_RE, 3], [WEAK_SUFFIX_RE, 1]] as const) {
+      const re = new RegExp(run + suffix, 'g');
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(line))) {
+        const name = `${m[1]}${m[2]}`.trim().replace(/^(for|from|at|with|of|by|to|dear|and|the)\s+/i, '');
+        if (NOT_COMPANY.test(m[1]) || name.split(/\s+/).length < 2) continue;
+        const key = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        const c = cands.get(key) ?? { name: tidyName(name), score: 0 };
+        c.score += weight + (i < 8 ? 3 : 0) + 1;
+        cands.set(key, c);
+      }
+    }
+  });
+  let best: { name: string; score: number } | undefined;
+  for (const c of cands.values()) if (!best || c.score > best.score) best = c;
+  return best?.name;
 }

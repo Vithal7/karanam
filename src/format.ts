@@ -16,3 +16,10 @@ export function rsShort(n: number) {
 export const pct = (x: number, digits = 1) => `${(x * 100).toFixed(digits).replace(/\.0+$/, '')}%`;
 
 export const uid = () => Math.random().toString(36).slice(2, 9);
+
+/** "LinkedIn Technology Information Private Limited" -> "LinkedIn Technology Information". */
+export const shortCompany = (name: string) =>
+  name
+    .replace(/[\s,]+(private|pvt\.?)\s+(limited|ltd\.?)\s*$/i, '')
+    .replace(/[\s,]+(limited|ltd\.?|llp|inc\.?|corporation|corp\.?)\s*$/i, '')
+    .trim() || name;

@@ -117,6 +117,14 @@ export function extractFacts(text: string, kind: DocKind): Facts {
       }
     }
     f.revisedCtc ??= moneyAfter(flat, /(revised|new|enhanced)\s+(annual\s+)?(ctc|cost\s+to\s+(the\s+)?company|compensation|salary|package|total\s+compensation)(\s+(will\s+be|is|of|shall\s+be|stands\s+at|:))?/, 100, 100_000);
+    f.incrementAmount = moneyAfter(flat, /(increment|increase|hike|raise)\s+(in\s+your\s+\w+\s+)?(of|amounting\s+to|worth)\s+(?=₹|rs|inr)/, 40, 10_000);
+    // "your annual CTC has been revised to Rs. 18,00,000", "total cost to company stands revised at ..."
+    f.revisedCtc ??= moneyAfter(
+      flat,
+      /(ctc|cost\s+to\s+(the\s+)?company|compensation|package|salary|remuneration)(\s*\([^)]*\))?\s+(has\s+been|is|stands|shall\s+be|will\s+be|was)?\s*(revised|increased|enhanced|raised|refixed|re-fixed|fixed)\s+(to|at|as)/,
+      60,
+      100_000,
+    );
     f.oldCtc ??= moneyAfter(flat, /(current|existing|present|previous)\s+(annual\s+)?(ctc|cost\s+to\s+(the\s+)?company|compensation|package)(\s+(of|is|:))?/, 60, 100_000);
   }
 

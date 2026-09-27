@@ -6,7 +6,9 @@
  */
 import type { Result } from './compute';
 import { fyLabel } from './fy';
-import type { Scenario } from './types';
+import type { Form16, Scenario } from './types';
+import { rulesFor, type Rules } from '../rules';
+import { round10, taxOn } from './tax';
 
 export interface ItrField {
   label: string;
@@ -37,6 +39,8 @@ export interface ReconRow {
 }
 
 export interface Itr1Guide {
+  /** Per employer: whether its figures come from Form 16 (actuals) or our projection. */
+  sources: { name: string; form16: boolean }[];
   form: 'ITR-1' | 'ITR-2';
   yearLabel: string;
   dueDate: string;
@@ -67,8 +71,8 @@ export function advanceTaxInterest(due: number, payMonthsFromApril = 4): { b: nu
   return { b: Math.round(b), c: Math.round(c) };
 }
 
-export function itr1Guide(r: Result, s: Scenario): Itr1Guide {
-  const f = r.filing;
+export function itr1Guide(r: Result, s: Scenario, rules: Rules): Itr1Guide {
+  const pf = r.filing;
   const newAct = r.fy >= 2026;
   const sec = (oldRef: string, newRef?: string) => (newAct && newRef ? `${newRef} (${oldRef} of the old Act)` : oldRef);
   const yearLabel = newAct ? `Tax year ${fyLabel(r.fy).replace('FY ', '')}` : `AY ${r.fy + 1}-${String((r.fy + 2) % 100).padStart(2, '0')}`;
@@ -96,11 +100,30 @@ export function itr1Guide(r: Result, s: Scenario): Itr1Guide {
     };
   });
   // Leave encashment exemption (on leaving), capped across jobs: against the jobs that paid it.
-  let leaveLeft = f.leaveExemption;
+  let leaveLeft = pf.leaveExemption;
   r.employers.forEach((e, k) => {
     const paid = e.lines.flatMap((l) => l.oneTimes).filter((o) => o.kind === 'leaveEncashment').reduce((a, o) => a + o.amount, 0);
     per[k].leave = Math.min(paid, leaveLeft);
     leaveLeft -= per[k].leave;
+  });
+
+  // Form 16 is the employer's actual figures: where you've added it, it replaces our projection.
+  const fromForm16 = per.map((p, k) => {
+    const f16 = form16Of(s.employers[k]);
+    if (!f16) return false;
+    per[k] = {
+      ...p,
+      tan: f16.tan ?? p.tan,
+      s171: f16.s171 ?? p.s171,
+      s172: f16.s171 !== undefined ? f16.s172 ?? 0 : p.s172,
+      s173: f16.s171 !== undefined ? f16.s173 ?? 0 : p.s173,
+      leave: f16.exempt ?? (f16.s171 !== undefined ? 0 : p.leave),
+      gratuity: f16.exempt !== undefined || f16.s171 !== undefined ? 0 : p.gratuity,
+      nps: f16.nps ?? p.nps,
+      tds: f16.tds ?? p.tds,
+      est: f16.tds !== undefined ? 0 : p.est,
+    };
+    return true;
   });
 
   const s171 = per.reduce((a, p) => a + p.s171, 0);
@@ -110,6 +133,21 @@ export function itr1Guide(r: Result, s: Scenario): Itr1Guide {
   const gratuity = per.reduce((a, p) => a + p.gratuity, 0);
   const gross = s171 + s172 + s173;
   const net = gross - leave - gratuity;
+  const t = rulesFor(rules, r.fy);
+  const npsTotal = per.reduce((a, p) => a + p.nps, 0);
+  const taxable = round10(Math.max(0, net - Math.min(t.standardDeduction, net) - npsTotal));
+  const tx = taxOn(taxable, t);
+  const f = {
+    standardDeduction: t.standardDeduction,
+    npsDeduction: npsTotal,
+    taxable,
+    slabTax: tx.slabTax,
+    rebate: tx.rebate,
+    surcharge: tx.surcharge,
+    cess: tx.cess,
+    total: round10(tx.total),
+    tdsTotal: per.reduce((a, p) => a + p.tds, 0),
+  };
   const sd = Math.min(f.standardDeduction, net);
   const salaryIncome = Math.max(0, net - sd);
   const ptPaid = r.employers.flatMap((e) => e.lines).reduce((a, l) => a + l.pt, 0);
@@ -224,6 +262,7 @@ export function itr1Guide(r: Result, s: Scenario): Itr1Guide {
     { text: 'No deferred tax on startup ESOPs and no losses carried forward' },
   ];
   return {
+    sources: per.map((p, k) => ({ name: p.name, form16: fromForm16[k] })),
     form,
     yearLabel,
     dueDate,
@@ -237,6 +276,13 @@ export function itr1Guide(r: Result, s: Scenario): Itr1Guide {
     tds,
     balance,
   };
+}
+
+/** An employer's Form 16 figures across its files (Part A and Part B may be separate PDFs). */
+function form16Of(emp: Scenario['employers'][number] | undefined): Form16 | undefined {
+  const all = (emp?.docs ?? []).map((d) => d.facts?.form16).filter((x): x is Form16 => !!x);
+  if (!all.length) return undefined;
+  return all.reduce<Form16>((a, b) => ({ ...a, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) }), { part: 'A' });
 }
 
 function tanOf(emp: Scenario['employers'][number] | undefined): string | undefined {

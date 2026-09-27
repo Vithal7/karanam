@@ -10,6 +10,7 @@ import { classifyDoc, companyFromEmail, companyKey, extractFacts } from './facts
 import { docFromExtract } from './merge';
 import { parseText } from './parse';
 import { parseMonthTable, sheetFy } from './months';
+import { parseForm16 } from './form16';
 import { fyEnd, fyOf, maxDate, minDate } from '../domain/fy';
 
 /** Limits for figures read from a file; anything beyond is a misread, not a salary. */
@@ -37,6 +38,9 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   if (k === 'taxsheet') {
+    const f16 = parseForm16(text);
+    if (f16) d.facts.form16 = f16;
+    if (f16?.tan) d.facts.tan = f16.tan;
     d.fy = sheetFy(text) ?? (d.docDate ? fyOf(d.docDate) : undefined);
     const cutoff = d.docDate ? minDate(d.docDate.slice(0, 7), thisMonth) : thisMonth;
     const monthly = parseMonthTable(text, d.fy ?? fyOf(d.docDate ?? `${thisMonth}-01`), cutoff);

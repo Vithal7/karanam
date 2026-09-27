@@ -3,6 +3,8 @@ import type { Result } from '../domain/compute';
 import { itr1Guide, type ItrField } from '../domain/itr1';
 import type { Scenario } from '../domain/types';
 import { rs } from '../format';
+import { useRules } from './rulesContext';
+import { Uploader, type ReadFile } from './Uploader';
 
 function Value(props: { f: ItrField }) {
   const [copied, setCopied] = useState(false);
@@ -27,17 +29,36 @@ function Value(props: { f: ItrField }) {
 }
 
 /** Filing: what to enter in ITR-1, in the portal's order, and what to reconcile before submitting. */
-export function Filing(props: { r: Result; s: Scenario }) {
-  const g = itr1Guide(props.r, props.s);
+export function Filing(props: { r: Result; s: Scenario; onAddFiles: (f: ReadFile[]) => void }) {
+  const g = itr1Guide(props.r, props.s, useRules());
+  const missing = g.sources.filter((x) => !x.form16);
+  const allActual = missing.length === 0;
   const pay = g.balance >= 1;
   const nil = Math.abs(g.balance) < 1;
   return (
     <>
-      <div class={`card filing-head ${pay ? 'bad' : 'good'}`}>
-        <span class="stat-label">{pay ? 'Pay before you file' : nil ? 'Nothing to pay or claim' : 'Refund you should get'}</span>
+      {!allActual && (
+        <div class="callout warn f16-warn" role="status">
+          <p>
+            <strong>{missing.length === g.sources.length ? 'This is a projection, not your return.' : 'Part of this is still a projection.'}</strong> File with Form 16: it has your employer's
+            actual salary and TDS. {missing.length === g.sources.length ? 'Ask' : `Still needed from ${missing.map((x) => x.name).join(' and ')}. Ask`} for it when you file (employers issue it by
+            15 June). Add it here and every figure below switches to its numbers.
+          </p>
+          <Uploader compact buttonLabel="+ Add Form 16" onFiles={props.onAddFiles} />
+        </div>
+      )}
+
+      <div class={`card filing-head ${pay ? 'bad' : 'good'} ${allActual ? '' : 'projected'}`}>
+        <span class="stat-label">
+          {allActual ? '' : 'Projected: '}
+          {pay ? 'pay before you file' : nil ? 'nothing to pay or claim' : 'refund you should get'}
+        </span>
         <span class="stat-value num">{rs(Math.abs(g.balance))}</span>
         <span class="stat-sub">
           {g.form} · {g.yearLabel} · new regime · file by {g.dueDate}
+        </span>
+        <span class="stat-sub">
+          {g.sources.map((x) => `${x.name}: ${x.form16 ? 'Form 16 ✓' : 'projected'}`).join(' · ')}
         </span>
         {(g.interest234B > 0 || g.interest234C > 0) && (
           <p class="small">Includes about {rs(g.interest234B + g.interest234C)} interest (234B/234C) because more than ₹10,000 was still due at year end.</p>

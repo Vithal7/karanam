@@ -29,7 +29,7 @@ import { DownloadMenu } from './ui/Download';
 import { pendingItems } from './ui/pending';
 import { Stages } from './ui/Stages';
 import { Filing } from './ui/Filing';
-import { Drawer } from './ui/Drawer';
+import { Drawer, Sidebar } from './ui/Drawer';
 import { RulesContext } from './ui/rulesContext';
 import { JobEditStep } from './ui/steps/JobEdit';
 import { StoryStep } from './ui/steps/Story';
@@ -98,6 +98,24 @@ export function App() {
   const [st, setSt] = useState<AppState>(() => load() ?? initialState());
   const [rules, setRules] = useState<Rules>(() => activeRules());
   const [rulesBanner, setRulesBanner] = useState(false);
+  // Desktop: the menu is a sidebar you can collapse; remembered on this device.
+  const desktop = useMedia('(min-width: 960px)');
+  const [navOpen, setNavOpen] = useState(() => {
+    try {
+      return localStorage.getItem('karanam:nav') !== 'closed';
+    } catch {
+      return true;
+    }
+  });
+  const toggleNav = () =>
+    setNavOpen((o) => {
+      try {
+        localStorage.setItem('karanam:nav', o ? 'closed' : 'open');
+      } catch {
+        /* private mode */
+      }
+      return !o;
+    });
   useEffect(() => save(st), [st]);
   useEffect(() => window.scrollTo({ top: 0 }), [st.step, st.editing]);
   useEffect(
@@ -211,19 +229,26 @@ export function App() {
   const STAGE_STEP: StepId[] = ['upload', 'clarify', 'story', 'results'];
   const goStage = (i: number) => setSt((x) => ({ ...x, step: STAGE_STEP[i], editing: null, history: [...x.history, x.step], seenResults: x.seenResults || i === 3 }));
 
+  const goView = (v: 'projection' | 'filing') => setSt((x) => ({ ...x, view: v }));
+  const startOver = () => {
+    clearSaved();
+    setSt(initialState());
+  };
   return (
     <RulesContext.Provider value={rules}>
+      <div class={`shell ${desktop ? (navOpen ? 'with-nav' : 'with-rail') : ''}`}>
+      {desktop && <Sidebar collapsed={!navOpen} view={st.view ?? 'projection'} stage={stageOf(st.step)} onView={goView} onStartOver={startOver} canStartOver={st.step !== 'upload' || !!st.view} />}
       <div class="app">
         <header class="top">
           <Drawer
             view={st.view ?? 'projection'}
             stage={stageOf(st.step)}
-            onView={(v) => setSt((x) => ({ ...x, view: v }))}
-            onStartOver={() => {
-              clearSaved();
-              setSt(initialState());
-            }}
+            onView={goView}
+            onStartOver={startOver}
             canStartOver={st.step !== 'upload' || !!st.view}
+            desktop={desktop}
+            sidebarOpen={navOpen}
+            onToggleSidebar={toggleNav}
           />
           <div class="brand">
             <svg viewBox="0 0 24 24" aria-hidden="true" class="logo">
@@ -253,13 +278,15 @@ export function App() {
             <>
               <h1>File your ITR</h1>
               {result && hasDocs ? (
-                <Filing r={result} s={effective} />
+                <Filing r={result} s={effective} onAddFiles={ingest} />
               ) : (
                 <div class="card">
-                  <p>Add your offer letters, payslips or tax sheets first. Filing uses the same numbers as your projection.</p>
-                  <button type="button" class="btn primary" onClick={() => setSt((x) => ({ ...x, view: 'projection' }))}>
-                    Add documents
-                  </button>
+                  <p>
+                    <strong>Add Form 16 from each employer you had this year.</strong> It's the employer's own record of your salary and TDS, so the return is built from actuals. Part A
+                    and Part B can be separate files.
+                  </p>
+                  <Uploader buttonLabel="Add Form 16" onFiles={ingest} />
+                  <p class="muted small">No Form 16 yet? Build a projection from your letters and payslips under Projection in the menu.</p>
                 </div>
               )}
             </>
@@ -415,6 +442,7 @@ export function App() {
           <RulesFooter rules={rules} />
         </main>
       </div>
+      </div>
     </RulesContext.Provider>
   );
 }
@@ -438,4 +466,16 @@ function RulesFooter({ rules }: { rules: Rules }) {
       </ul>
     </details>
   );
+}
+
+/** Whether a media query matches, kept up to date. */
+function useMedia(q: string): boolean {
+  const [m, setM] = useState(() => typeof matchMedia !== 'undefined' && matchMedia(q).matches);
+  useEffect(() => {
+    const mq = matchMedia(q);
+    const on = () => setM(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, [q]);
+  return m;
 }

@@ -140,6 +140,24 @@ export interface MonthActual {
   items?: { label: string; amount: number; kind: 'bonus' | 'arrears' | 'perquisite' }[];
 }
 
+/** An employer's Form 16 figures (Part A: TDS; Part B: salary and deductions). */
+export interface Form16 {
+  s171?: number;
+  s172?: number;
+  s173?: number;
+  /** Total exempt u/s 10 (leave encashment, gratuity...). */
+  exempt?: number;
+  sd?: number;
+  pt?: number;
+  chargeable?: number;
+  /** Employer NPS, 80CCD(2). */
+  nps?: number;
+  tds?: number;
+  tan?: string;
+  /** Which parts the file holds. */
+  part: 'A' | 'B' | 'AB';
+}
+
 /** Dated facts read from a file, beyond salary components. */
 export interface Facts {
   effectiveFrom?: string;
@@ -167,6 +185,8 @@ export interface Facts {
   joiningClawbackMonths?: number;
   /** Employer's TAN (on Form 16, payslips, tax sheets), for the ITR's TDS schedule. */
   tan?: string;
+  /** Form 16 figures, when the file is one. */
+  form16?: Form16;
   /** Work location from the letter or payslip. */
   location?: { state: string; city?: string; source: 'doc' | 'guess' };
   /** Probation from the offer letter, in months. */

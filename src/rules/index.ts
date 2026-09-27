@@ -12,6 +12,22 @@ export interface TaxYearRules {
   leaveEncashmentCap: number;
 }
 
+/**
+ * Professional tax in one state.
+ *  monthly    - slab by that month's salary; `special` replaces the top slab in one month (₹300 in Feb)
+ *  annual     - slab by the year's salary, collected monthly; `adjustMonth` takes the remainder
+ *  halfYearly - slab by the half-year's salary, collected in `collectMonths` (one per half-year)
+ */
+export interface PtRule {
+  name: string;
+  basis: 'monthly' | 'annual' | 'halfYearly';
+  slabs: { upto: number | null; amount: number }[];
+  special?: { month: number; amount: number };
+  collectMonths?: number[];
+  adjustMonth?: number;
+  note?: string;
+}
+
 export interface Rules {
   version: string;
   updated: string;
@@ -19,7 +35,13 @@ export interface Rules {
   /** Keyed by FY start year ("2025" = FY 2025-26); later years inherit the latest earlier entry. */
   incomeTax: Record<string, TaxYearRules>;
   epf: { rate: number; wageCeiling: { from: string; amount: number }[] };
-  professionalTax: { defaultMonthly: number };
+  professionalTax: {
+    defaultMonthly: number;
+    /** States and UTs with no professional tax on salaries. */
+    none?: Record<string, string>;
+    /** By state code: how much PT a salary attracts and when it's collected. */
+    states?: Record<string, PtRule>;
+  };
 }
 
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
@@ -49,7 +71,22 @@ export function validateRules(x: unknown): x is Rules {
   if (!years.length || !years.every((y) => /^\d{4}$/.test(y) && validTaxYear(r.incomeTax[y]))) return false;
   if (!r.epf || !isNum(r.epf.rate) || !Array.isArray(r.epf.wageCeiling) || !r.epf.wageCeiling.length) return false;
   if (!r.epf.wageCeiling.every((w: any) => isDate(w.from) && isNum(w.amount))) return false;
-  return !!r.professionalTax && isNum(r.professionalTax.defaultMonthly);
+  if (!r.professionalTax || !isNum(r.professionalTax.defaultMonthly)) return false;
+  const st = r.professionalTax.states;
+  if (st !== undefined && (typeof st !== 'object' || !Object.values(st).every(validPt))) return false;
+  return true;
+}
+
+function validPt(p: any): boolean {
+  return (
+    !!p &&
+    isStr(p.name) &&
+    ['monthly', 'annual', 'halfYearly'].includes(p.basis) &&
+    Array.isArray(p.slabs) &&
+    p.slabs.length > 0 &&
+    p.slabs.every((x: any) => (x.upto === null || isNum(x.upto)) && isNum(x.amount)) &&
+    (p.basis !== 'halfYearly' || (Array.isArray(p.collectMonths) && p.collectMonths.length === 2))
+  );
 }
 
 export const bundledRules = bundled as Rules;

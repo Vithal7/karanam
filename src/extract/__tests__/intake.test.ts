@@ -389,3 +389,23 @@ Joining Bonus 1,50,000`;
     expect(ev.emp.oneTimes.find((o) => o.kind === 'joining')?.month).toBe('2026-11');
   });
 });
+
+describe('audit: dates are asked, not invented', () => {
+  it('a relieving letter without a resignation date recovers nothing and asks when you resigned', async () => {
+    const { exitQuestionFor } = await import('../../ui/ExitQuestion');
+    const APPT = `Acme Private Limited\nDate: 01/01/2022\nOffer of Employment\nYour date of joining will be 1st February 2022.\nBasic 50,000 6,00,000\nHRA 25,000 3,00,000\nNotice period: 90 days`;
+    const RELIEVING = `Acme Private Limited\nDate: 31/10/2026\nRelieving Letter\nThis is to certify that you have been relieved from your duties. Your last working day was 31st October 2026.`;
+    const { employers } = assignDocs([blankJob('New job', '2026-09-27')], [docFromText(APPT, 'appt.pdf'), docFromText(RELIEVING, 'relieving.pdf')], 2026);
+    const e = applyEvents(applyDocs(employers[0], {}, bundledRules).emp, bundledRules, '2026-04').emp;
+    expect(e.end).toBe('2026-10-31');
+    expect(e.resignedOn).toBeUndefined();
+    expect(e.fnf?.noticeDaysRecovered ?? 0).toBe(0);
+    expect(exitQuestionFor(e, 0, 1)).toMatch(/When you resigned/);
+  });
+  it('notice in months runs to the same date N months on', async () => {
+    const { noticeShortfall } = await import('../../domain/schedule');
+    const e = { ...blankJob('A', '2020-01-01'), noticeDays: 90, noticeMonths: 3, resignedOn: '2027-01-15' };
+    expect(noticeShortfall({ ...e, end: '2027-04-15' })).toBe(0);
+    expect(noticeShortfall({ ...e, end: '2027-04-05' })).toBe(10);
+  });
+});

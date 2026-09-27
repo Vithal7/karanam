@@ -80,13 +80,15 @@ describe('three jobs in one year', () => {
 
   it('pays the notice buyout at the next job and shares the leave exemption', () => {
     expect(C.lines.flatMap((l) => l.oneTimes).some((o) => o.kind === 'buyout')).toBe(true);
-    expect(r.filing.leaveExemption).toBe(A.fnf!.leaveEncashment + B.fnf!.leaveEncashment);
+    // Each job's leave payout counts up to its own s.10(10AA) limits (30 days per completed year).
+    const lim = (x: typeof A) => Math.min(x.fnf!.leaveEncashment, x.fnf!.leaveExemptLimit);
+    expect(r.filing.leaveExemption).toBe(Math.round(lim(A) + lim(B)));
   });
 
   it('settles: balance = tax on combined income - all TDS', () => {
     const tds = r.employers.flatMap((e) => e.lines).reduce((a, l) => a + l.tds, 0);
     expect(r.filing.balance).toBeCloseTo(r.filing.total - tds, 6);
-    expect(r.filing.total).toBeCloseTo(taxOn(round10(r.filing.gross - 75000 - r.filing.leaveExemption)).total, 6);
+    expect(r.filing.total).toBe(round10(taxOn(round10(r.filing.gross - 75000 - r.filing.leaveExemption)).total));
   });
 
   it('flags impossible timelines', () => {

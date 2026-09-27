@@ -17,7 +17,7 @@ export const pct = (x: number, digits = 1) => `${(x * 100).toFixed(digits).repla
 
 export const uid = () => Math.random().toString(36).slice(2, 9);
 
-/** "LinkedIn Technology Information Private Limited" -> "LinkedIn Technology Information". */
+/** "Acme Technology Information Private Limited" -> "Acme Technology Information". */
 export const shortCompany = (name: string) =>
   name
     .replace(/[\s,]+(private|pvt\.?)\s+(limited|ltd\.?)\s*$/i, '')

@@ -31,9 +31,13 @@ export interface AppState {
   needs: Record<string, { docId: string; docName: string; month: string }[]>;
   /** Per job: total TDS deducted so far this FY (from the latest payslip). */
   tdsSoFar: Record<string, number | null>;
+  /** Per job: the date the year-to-date TDS is as of (the payslip's month). */
+  tdsAsOf?: Record<string, string>;
   showNextFy: boolean;
   /** You confirmed the timeline (stage 3); reset when new files come in. */
   timelineOk?: boolean;
+  /** Which part of the app: the year's projection, or filing the return. */
+  view?: 'projection' | 'filing';
   /** You've seen the month-by-month result (stage 4). */
   seenResults?: boolean;
 }
@@ -132,17 +136,21 @@ export const dayBefore = (iso: string) => {
  * TDS for past months: amounts recorded from payslips or a tax sheet as they are; a year-to-date
  * total you entered covers the remaining past months evenly.
  */
-export function spreadTdsSoFar(emp: Employment, s: Scenario, total: number | null | undefined): Record<string, number> {
+export function spreadTdsSoFar(emp: Employment, s: Scenario, total: number | null | undefined, asOf?: string): Record<string, number> {
   const recorded = emp.tdsKnown ?? {};
   if (total === null || total === undefined) return recorded;
   const todayMonth = monthOf(s.today);
   const start = maxDate(emp.start || fyStart(s.fy), fyStart(s.fy));
   const end = emp.end || fyEnd(s.fy);
   const months: string[] = [];
-  for (let m = monthOf(start); m <= monthOf(end) && m < todayMonth; m = addMonths(m, 1)) months.push(m);
+  // Up to the month the total is as of (a payslip's YTD includes its own month), else up to today.
+  const upto = asOf ? monthOf(asOf) : addMonths(todayMonth, -1);
+  for (let m = monthOf(start); m <= monthOf(end) && m <= upto; m = addMonths(m, 1)) months.push(m);
   const open = months.filter((m) => recorded[m] === undefined);
   if (!open.length) return recorded;
   const left = Math.max(0, total - months.reduce((a, m) => a + (recorded[m] ?? 0), 0));
+  // Nothing left over: the open months weren't paid yet (a sheet dated mid-month). Keep estimating them.
+  if (left < 1) return recorded;
   return { ...recorded, ...Object.fromEntries(open.map((m) => [m, left / open.length])) };
 }
 
@@ -153,7 +161,9 @@ export function effectiveScenario(st: AppState): Scenario {
     ...s,
     employers: s.employers.map((e0, i) => {
       const e = e0.tdsManual ? { ...e0, tdsKnown: { ...e0.tdsKnown, ...e0.tdsManual } } : e0;
-      return i === s.employers.length - 1 ? e : { ...e, tdsKnown: spreadTdsSoFar(e, s, st.tdsSoFar[e.id]) };
+      // Any job already started: its year-to-date TDS fixes the months it covers.
+      const started = !!e.start && e.start <= s.today;
+      return i === s.employers.length - 1 && !started ? e : { ...e, tdsKnown: spreadTdsSoFar(e, s, st.tdsSoFar[e.id], st.tdsAsOf?.[e.id]) };
     }),
   };
 }

@@ -35,6 +35,8 @@ export interface Structure {
    * false -> NPS is paid by the employer on top; it never reaches the payslip.
    */
   npsInGross: boolean;
+  /** Voluntary PF on top of the statutory 12% (a deduction from pay; no tax benefit in the new regime). */
+  vpf?: number;
 }
 
 export interface Revision {
@@ -50,6 +52,8 @@ export interface Revision {
   ctc?: number;
   pct?: number;
   source?: string;
+  /** true when the letter had no effective date and its own date was used. */
+  dateGuessed?: boolean;
   /** true when the breakup was worked out by scaling the old one (letter gave only a total). */
   scaled?: boolean;
   /** Monthly gratuity / ex gratia accrual in the CTC from this hike; empty = scaled with basic. */
@@ -68,6 +72,8 @@ export interface OneTime {
   taxable: boolean;
   /** Joining bonus: repayable if you leave within this many months. */
   clawbackMonths?: number;
+  /** false for a perquisite (ESOP/RSU allotment): taxed as salary, never paid to you in cash. */
+  cash?: boolean;
 }
 
 export interface VariablePay {
@@ -131,7 +137,7 @@ export interface Buyout {
 export interface MonthActual {
   tds?: number;
   gross?: number;
-  items?: { label: string; amount: number; kind: 'bonus' | 'arrears' }[];
+  items?: { label: string; amount: number; kind: 'bonus' | 'arrears' | 'perquisite' }[];
 }
 
 /** Dated facts read from a file, beyond salary components. */
@@ -146,6 +152,8 @@ export interface Facts {
   lastWorkingDay?: string;
   resignationDate?: string;
   noticeDays?: number;
+  /** Notice given in months ("3 months"): served until the same date N months after resigning. */
+  noticeMonths?: number;
   shortfallDays?: number;
   leaveDays?: number;
   leaveAmount?: number;
@@ -157,6 +165,10 @@ export interface Facts {
   penalty?: number;
   buyout?: { mode: 'actuals' | 'cap'; cap?: number };
   joiningClawbackMonths?: number;
+  /** Employer's TAN (on Form 16, payslips, tax sheets), for the ITR's TDS schedule. */
+  tan?: string;
+  /** Work location from the letter or payslip. */
+  location?: { state: string; city?: string; source: 'doc' | 'guess' };
   /** Probation from the offer letter, in months. */
   probationMonths?: number;
   /** Tax computation sheet: income tax deducted so far this year. */
@@ -215,6 +227,8 @@ export interface Employment {
   prevVariable?: 'paid' | 'no';
   /** Notice period in days (from the appointment letter, or entered). */
   noticeDays?: number;
+  /** When the letter gives the notice in months: counted by calendar months from the resignation. */
+  noticeMonths?: number;
   /** Where the last working day came from: a resignation/F&F paper, you, or an assumption. */
   endSource?: 'doc' | 'user' | 'assumed';
   /**
@@ -222,14 +236,30 @@ export interface Employment {
    * projected the way payroll would.
    */
   tdsKnown: Record<string, number>;
+  /** Gross pay actually paid in past months, from payslips or a tax sheet ("YYYY-MM" -> amount). */
+  grossKnown?: Record<string, number>;
   /** TDS you entered month by month; wins over what files say. */
   tdsManual?: Record<string, number>;
   /** Full & final settlement, for a job that ends before the next one starts. */
   fnf?: FnF;
   /** For every job after the first: when it learns about the earlier ones. */
   form12B: Form12B;
+  /** You answered the Form 12B question (so it isn't asked again). */
+  form12BConfirmed?: boolean;
+  /** You confirmed the leave balance at exit (0 days is a real answer then). */
+  leaveConfirmed?: boolean;
   /** For every job after the first: notice buyout it reimburses. */
   buyout?: Buyout;
+  /**
+   * Where you work: the state decides professional tax. `source`: read from a letter's work
+   * location (doc), guessed from a city mentioned in it (guess), or given by you (user).
+   */
+  location?: { state?: string; city?: string; source: 'doc' | 'guess' | 'user' };
+  /**
+   * When the EPF wage ceiling rises mid-year and PF is part of your CTC: 'allowance' - the
+   * employer's extra PF comes out of your special allowance (CTC unchanged); 'employer' - it's on top.
+   */
+  pfRise?: 'allowance' | 'employer';
   /** Resignation date, for the story view. */
   resignedOn?: string;
   /** Where the start date came from: a letter, a letter's date (approximate), you, or a placeholder. */
@@ -244,6 +274,8 @@ export interface Settings {
   thirtyDayMonth: boolean;
   /** Hike % for next FY projection (0.1 = 10%). */
   nextFyHike: number;
+  /** You said there was no salary this FY before your first job here. */
+  noEarlierIncome?: boolean;
 }
 
 export interface Scenario {
@@ -266,7 +298,9 @@ export interface MonthLine {
   hra: number;
   special: number;
   others: number;
-  oneTimes: { label: string; amount: number; taxable: boolean; kind: OneTimeKind }[];
+  oneTimes: { label: string; amount: number; taxable: boolean; kind: OneTimeKind; cash?: boolean }[];
+  /** Perquisites in gross that aren't paid in cash (ESOP/RSU): taxed, then taken back out of in-hand. */
+  noncash?: number;
   gross: number;
   epf: number;
   pt: number;

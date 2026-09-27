@@ -31,7 +31,8 @@ export const workbookScenario = (): Scenario => ({
   {
     ...job('s'),
     name: 'S',
-    start: '2026-04-01',
+    // Joined in Jan 2025: one completed year, so 30 days of leave can be exempt.
+    start: '2025-01-20',
     end: '2026-11-11',
     ctc: 0,
     structure: st(67500, 33750, 43710, 1800, 200),
@@ -110,9 +111,9 @@ describe('workbook parity', () => {
     expect(r.filing.gross).toBeCloseTo(3258324.76, -1);
     expect(r.filing.leaveExemption).toBe(60192);
     expect(r.filing.taxable).toBe(3030700);
-    expect(r.filing.total).toBeCloseTo(508778.4, 2);
+    expect(r.filing.total).toBe(508780); // the workbook's 5,08,778.40, rounded to ₹10 (s.288B)
     expect(r.filing.tdsTotal).toBeCloseTo(172170 + 355387.68, 1);
-    expect(r.filing.balance).toBeCloseTo(-18779.28, 1);
+    expect(r.filing.balance).toBeCloseTo(-18779.28 + 1.6, 1);
   });
 
   it('FY27-28 projection', () => {

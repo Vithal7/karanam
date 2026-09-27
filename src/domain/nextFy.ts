@@ -1,6 +1,6 @@
 import { rulesFor, type Rules } from '../rules';
 import { fyEnd, fyMonths, fyStart, daysBetween, maxDate } from './fy';
-import { buildLines, finishLine, structureFor, taxableGross, variableAsOneTime } from './schedule';
+import { buildLines, ctcNeutralPfCut, finishLine, structureFor, taxableGross, variableAsOneTime } from './schedule';
 import { round10, taxOn } from './tax';
 import type { Employment, MonthLine, Scenario, Structure } from './types';
 
@@ -34,11 +34,13 @@ export function projectNextFy(s: Scenario, rules: Rules): NextFyResult {
   const hike = s.settings.nextFyHike || 0;
   const effectiveHike = hike * (daysServed / 365);
   const k = 1 + effectiveHike;
+  // A PF-ceiling rise already taken out of the allowance stays out of it.
+  const cut = ctcNeutralPfCut(emp, base, fyMonths(s.fy)[11], rules);
   const structure: Structure = {
     ...base,
     basic: base.basic * k,
     hra: base.hra * k,
-    special: base.special * k,
+    special: (base.special - cut) * k,
     others: base.others.map((o) => ({ ...o, amount: o.amount * k })),
   };
   const e: Employment = { ...emp, start: fyStart(fy), end: fyEnd(fy), structure, revisions: [], recoveries: [], tdsKnown: {}, totalsOnly: undefined };

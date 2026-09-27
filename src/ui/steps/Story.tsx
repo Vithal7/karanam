@@ -10,13 +10,17 @@ import { Continue } from '../Continue';
 import { reconcile } from '../../domain/reconcile';
 import { rs } from '../../format';
 import { useRules } from '../rulesContext';
-import { ExitQuestion } from '../ExitQuestion';
+import { ExitQuestion, exitQuestionFor } from '../ExitQuestion';
 import { OverlapFix } from '../OverlapFix';
 import { PrevVariableQuestion, needsPrevVariable } from '../PrevVariable';
 import { Money, Percent } from '../controls';
 import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
 import type { Pending } from '../pending';
+import { LocationQuestion } from '../Location';
+import { EarlierIncomeQuestion, Form12BQuestion, JoinDateQuestion, LeaveQuestion, PfRiseQuestion } from '../Questions';
+import { pfCeilingRiseIn } from '../../domain/schedule';
+import { fyStart } from '../../domain/fy';
 
 
 export interface HikeNeed {
@@ -57,6 +61,8 @@ export function StoryStep(props: {
   mode: 'clarify' | 'timeline';
   pending: Pending[];
   onClarify: () => void;
+  onNoEarlierIncome: () => void;
+  onAddEarlier: (x: { name: string; gross: number; tds: number }) => void;
   s: Scenario;
   r: Result | null;
   events: TimelineEvent[];
@@ -114,6 +120,10 @@ export function StoryStep(props: {
             </div>
           )}
         </>
+      )}
+
+      {clarify && s.employers[0] && !s.employers[0].totalsOnly && s.employers[0].start > fyStart(s.fy) && s.employers[0].startSource !== 'default' && !s.settings.noEarlierIncome && (
+        <EarlierIncomeQuestion first={s.employers[0]} fyLabel={fyLabel(s.fy)} onNone={props.onNoEarlierIncome} onAdd={props.onAddEarlier} />
       )}
 
       {clarify && props.inbox.length > 0 && (
@@ -179,7 +189,7 @@ export function StoryStep(props: {
             const e = s.employers[k];
             return (
               <>
-                {clarify && k < n - 1 && !e.totalsOnly && e.endSource !== 'doc' && e.endSource !== 'user' && (
+                {clarify && exitQuestionFor(e, k, n) && (
                   <ExitQuestion emp={e} next={s.employers[k + 1]} fy={s.fy} thirty={s.settings.thirtyDayMonth} onConfirm={props.onChangeJob} onChangeNext={props.onChangeJob} />
                 )}
                 {clarify && k < n - 1 && (e.endSource === 'doc' || e.endSource === 'user') && (
@@ -199,6 +209,11 @@ export function StoryStep(props: {
                     </button>
                   </p>
                 )}
+                {clarify && !e.totalsOnly && e.startSource === 'approx' && <JoinDateQuestion emp={e} onChange={props.onChangeJob} />}
+                {clarify && k > 0 && !e.totalsOnly && !e.form12BConfirmed && <Form12BQuestion emp={e} prevName={s.employers.slice(0, k).map((x) => x.name).join(' and ')} onChange={props.onChangeJob} />}
+                {clarify && !e.totalsOnly && !e.pfRise && pfCeilingRiseIn(e, s.fy, rules) && <PfRiseQuestion emp={e} month={pfCeilingRiseIn(e, s.fy, rules)!} onChange={props.onChangeJob} />}
+                {clarify && e.fnf && !e.leaveConfirmed && !e.fnf.leaveDays && e.fnf.leaveAmount === undefined && (k < n - 1 || !!e.end) && <LeaveQuestion emp={e} onChange={props.onChangeJob} />}
+                {clarify && !e.totalsOnly && (!e.location?.state || e.location.source === 'guess') && <LocationQuestion emp={e} rules={rules} onChange={props.onChangeJob} />}
                 {clarify && needsPrevVariable(e, s.fy) && <PrevVariableQuestion emp={e} fy={s.fy} onChange={props.onChangeJob} />}
                 {clarify && (props.needs[e.id] ?? []).map((need) => (
                   <HikeQuestion need={need} onAnswer={(f) => props.onAnswerHike(e.id, need.docId, f)} />

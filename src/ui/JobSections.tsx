@@ -120,7 +120,7 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
 
       <h3 class="mt">Notice period</h3>
       <Field label="Notice period" hint={e.docs.some((d) => d.facts?.noticeDays) ? 'From your appointment letter.' : 'From your appointment letter or HR policy.'}>
-        <Num value={e.noticeDays ?? 0} onChange={(v) => props.onChange({ ...e, noticeDays: v || undefined })} suffix="days" ariaLabel="Notice period in days" />
+        <Num value={e.noticeDays ?? 0} onChange={(v) => props.onChange({ ...e, noticeDays: v || undefined, noticeMonths: undefined })} suffix="days" ariaLabel="Notice period in days" />
       </Field>
       {shortfall !== undefined && shortfall !== f.noticeDaysRecovered && (
         <p class="note">

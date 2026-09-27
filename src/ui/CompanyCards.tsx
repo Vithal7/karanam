@@ -59,8 +59,9 @@ export function CompanyCards(props: { s: Scenario; r: Result; children?: (index:
                 const pt = sum((l) => l.pt);
                 const nps = sum((l) => l.nps);
                 const rec = sum((l) => l.recoveries);
+                const perq = sum((l) => l.noncash ?? 0);
                 // Anything else payroll takes, so the statement always adds up to in-hand.
-                const other = gross - epf - pt - nps - rec - tds - total;
+                const other = gross - perq - epf - pt - nps - rec - tds - total;
                 const row = (label: string, v: number, cls = '') =>
                   Math.round(v) !== 0 || cls ? (
                     <div class={`stmt-row ${cls}`}>
@@ -72,6 +73,7 @@ export function CompanyCards(props: { s: Scenario; r: Result; children?: (index:
                   <>
                     <div class="stmt" aria-label={`${e.name} this year`}>
                       {row('Gross pay', gross, 'gross')}
+                      {Math.round(perq) !== 0 && row('Perquisites (taxed, not paid in cash)', perq, 'minus')}
                       {row('Income tax (TDS)', tds, 'minus')}
                       {Math.round(epf) !== 0 && row('Provident fund (EPF)', epf, 'minus')}
                       {Math.round(pt) !== 0 && row('Professional tax', pt, 'minus')}

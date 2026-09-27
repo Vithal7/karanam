@@ -47,7 +47,11 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
   if (k === 'payslip' && d.docDate) {
     const c = x.components;
     // On a payslip a bonus row is the amount paid that month (read as a one-off, i.e. the "annual" figure).
-    const items = [c.variable, c.retention].filter(Boolean).map((v) => ({ label: v!.label, amount: Math.round(v!.annual), kind: 'bonus' as const }));
+    const items = [
+      ...[c.variable, c.retention, c.leaveEnc].filter(Boolean).map((v) => ({ label: v!.key === 'leaveEnc' ? 'Leave encashment (in service, taxable)' : v!.label, amount: Math.round(v!.annual), kind: 'bonus' as const })),
+      ...(c.arrears ? [{ label: 'Arrears', amount: Math.round(c.arrears.annual), kind: 'arrears' as const }] : []),
+      ...(c.perquisite ? [{ label: c.perquisite.label, amount: Math.round(c.perquisite.annual), kind: 'perquisite' as const }] : []),
+    ].filter((x) => x.amount > 0);
     const month = d.docDate.slice(0, 7);
     d.facts.monthly = { [month]: { tds: c.tds ? Math.round(c.tds.monthly) : undefined, items: items.length ? items : undefined } };
     // A payslip's bonus row is what was paid that month, not an annual target.
@@ -90,7 +94,7 @@ const FILE_STOP = new Set(
   'letter offer appointment appraisal salary revision revised increment hike payslip pay slip final settlement fnf full and resignation acceptance accepted relieving experience copy scan scanned doc docx pdf jpg jpeg png image img the for new old signed version annexure compensation ctc employee email mail from dated latest updated month statement'.split(' '),
 );
 
-/** Distinctive words in a file name ("Vithal Suzlon Appointment Letter (1).pdf" -> vithal, suzlon). */
+/** Distinctive words in a file name ("Priya Acme Appointment Letter (1).pdf" -> priya, acme). */
 export const fileTokens = (name: string) =>
   name
     .toLowerCase()
@@ -99,7 +103,7 @@ export const fileTokens = (name: string) =>
     .filter((w) => w.length >= 3 && !FILE_STOP.has(w) && !MONTH_WORDS.has(w));
 const MONTH_WORDS = new Set('jan feb mar apr may jun jul aug sep sept oct nov dec january february march april june july august september october november december'.split(' '));
 
-/** First word of each known company ("suzlon" for Suzlon Energy Limited). */
+/** First word of each known company ("acme" for Acme Energy Limited). */
 function companyWords(names: string[]): Map<string, string> {
   const m = new Map<string, string>();
   for (const n of names) {
@@ -317,7 +321,7 @@ function bySiblingFile(jobs: Employment[], d: DocRecord, all: DocRecord[]): Empl
   return jobs.find((e) => !isBlank(e) && e.docs.some((x) => x.id !== d.id && fileTokens(x.name).some((t) => words.includes(t))));
 }
 
-/** "suzlon" shared by two file names -> "Suzlon", a better job name than "Earlier job". */
+/** "acme" shared by two file names -> "Acme", a better job name than "Earlier job". */
 function siblingName(d: DocRecord, all: DocRecord[]): string | undefined {
   const w = distinctive(d, all)[0];
   return w ? w.charAt(0).toUpperCase() + w.slice(1) : undefined;

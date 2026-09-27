@@ -22,6 +22,10 @@ export type ComponentKey =
   | 'variable'
   | 'pt'
   | 'tds'
+  | 'arrears'
+  | 'perquisite'
+  | 'vpf'
+  | 'leaveEnc'
   | 'ctc';
 
 export interface Found {
@@ -52,14 +56,20 @@ export interface Extracted {
 }
 
 /** Recurring components are monthly; these are one-off or annual by nature. */
-const ANNUAL_ONLY: ComponentKey[] = ['joining', 'retention', 'variable', 'ctc', 'gratuity', 'insurance'];
+const ANNUAL_ONLY: ComponentKey[] = ['joining', 'retention', 'variable', 'ctc', 'gratuity', 'insurance', 'arrears', 'perquisite', 'leaveEnc'];
+/** Paid once, not every month: on a payslip the figure is this month's amount (the next column is year-to-date). */
+const ONE_OFF: ComponentKey[] = ['joining', 'retention', 'variable', 'arrears', 'perquisite', 'leaveEnc'];
 
 // Order matters: the first match wins, so more specific patterns come first.
 const LABELS: [ComponentKey, RegExp][] = [
   ['ctc', /\bt?ctc\b|cost\s+to\s+(the\s+)?company|total\s+(annual\s+|target\s+|fixed\s+and\s+variable\s+)?(compensation|remuneration|package|rewards?|emoluments)|annual\s+(compensation|package|remuneration|emoluments)|gross\s+annual\s+compensation|target\s+compensation|annual\s+salary\s+package|\b(compensation|package)\s*[:\-](?=\s*(?:₹|rs\.?|inr)?\s*\d)/i],
+  ['arrears', /\barrears?\b/i],
+  ['perquisite', /perquisite|\bperqs?\b|\besops?\b|\bespp\b|\brsus?\b|stock\s+(option|award)s?\s+(perq|benefit|income)/i],
+  ['vpf', /\bvpf\b|voluntary\s+(provident\s+fund|pf)/i],
+  ['leaveEnc', /leave\s+encash(ment)?|encashment\s+of\s+leave|\bel\s+encash/i],
   ['joining', /joining\s+(bonus|amount)|sign(ing)?[\s-]*on\s+bonus|signing\s+bonus|one[\s-]*time\s+(joining|bonus)|relocation\s+(bonus|allowance)/i],
   ['retention', /retention\s+bonus/i],
-  ['variable', /variable|performance\s+(linked|bonus|pay|incentive)|\bpli\b|\bstip\b|target\s+bonus|annual\s+(bonus|incentive)|incentive/i],
+  ['variable', /variable|performance\s+(linked|bonus|pay|incentive)|\bpli\b|\bstip\b|target\s+bonus|annual\s+(bonus|incentive)|incentive|(?<!statutory\s)\bbonus\b/i],
   ['employeePf', /employee'?s?\s+(contribution\s+(to|towards)\s+)?(pf|provident|epf)|(pf|epf|provident\s+fund)\s*[-(]?\s*employee/i],
   ['employerPf', /employer'?s?\s+(contribution\s+(to|towards)\s+)?(pf|provident|epf)|(pf|epf|provident\s+fund)\s*[-(]?\s*employer|provident\s+fund|\bepf\b|\bpf\b/i],
   ['nps', /\bnps\b|national\s+pension/i],
@@ -72,7 +82,7 @@ const LABELS: [ComponentKey, RegExp][] = [
   ['lta', /\blta\b|leave\s+travel/i],
   ['conveyance', /conveyance|transport\s+allowance/i],
   ['special', /special\s+(allowance|pay)|\bspecial\b|flexi(ble)?\s+(benefit|allowance|pay|component)|\bflexi\b|misc(ellaneous)?\.?\s*(allowance|allow|allw|alw)\.?|\bmisc(ellaneous)?\b|fixed\s+allowance|personal\s+allowance|supplementary\s+allowance|balance\s+allowance|cash\s+allowance|ad[\s-]?hoc\s+allowance|management\s+allowance|consolidated\s+allowance/i],
-  ['otherAllowance', /dearness\s+allowance|\bd\.?a\.?\b(?=\s*[:\d₹r])|other\s+allowance|allowance|\ballow\b\.?|\ballw\.?\b|\balw\.?\b|\ballce\b/i],
+  ['otherAllowance', /statutory\s+bonus|dearness\s+allowance|\bd\.?a\.?\b(?=\s*[:\d₹r])|other\s+allowance|allowance|\ballow\b\.?|\ballw\.?\b|\balw\.?\b|\ballce\b/i],
 ];
 
 const NICE: Record<ComponentKey, string> = {
@@ -92,6 +102,10 @@ const NICE: Record<ComponentKey, string> = {
   variable: 'Variable pay',
   pt: 'Professional tax',
   tds: 'Income tax (TDS)',
+  arrears: 'Arrears',
+  perquisite: 'Perquisite (ESOP/RSU)',
+  vpf: 'Voluntary PF',
+  leaveEnc: 'Leave encashment',
   ctc: 'CTC',
 };
 
@@ -279,9 +293,9 @@ export function parseText(text: string): Extracted {
   const ALLOWANCE_KEYS: ComponentKey[] = ['special', 'otherAllowance', 'lta', 'conveyance'];
   for (let i = 0; i < lines.length; i++) for (const [si, seg] of segments(lines[i]).entries()) {
     const { key, text: line } = seg;
-    // The row's own name starts at the line start for the first label ("Suzlon Allowance").
+    // The row's own name starts at the line start for the first label ("Acme Allowance").
     const rowName = rowLabel(si === 0 ? lines[i] : line);
-    // Several allowance rows are common ("Miscellaneous", "Dearness", "Suzlon Allowance"): keep them all.
+    // Several allowance rows are common ("Miscellaneous", "Dearness", "Acme Allowance"): keep them all.
     if (key === 'ctc' || (components[key] && !ALLOWANCE_KEYS.includes(key))) continue;
     if (isTotalText(line)) continue;
     let nums = numbersIn(line);
@@ -294,7 +308,11 @@ export function parseText(text: string): Extracted {
     let annual: number | undefined;
     let confidence: Confidence = 'guessed';
 
-    if (money.length >= 2) {
+    if (kind === 'payslip' && ONE_OFF.includes(key) && money.length) {
+      // Payslip columns are this month and year-to-date: the first figure was paid this month.
+      monthly = annual = money[0];
+      confidence = 'found';
+    } else if (money.length >= 2) {
       // Find a monthly/annual pair (x and ~12x).
       outer: for (const a of money)
         for (const b of money)
@@ -396,7 +414,7 @@ export function parseText(text: string): Extracted {
   if (kind === 'offer' && !doj) warnings.push('Could not find the date of joining. Please enter it.');
 
   // Rows we don't recognise by name but that read like salary lines (monthly and annual figures
-  // 12x apart), e.g. "Suzlon Allow  5,24,520  43,710" or "Fixed Pay  ...": keep them as allowances.
+  // 12x apart), e.g. "Acme Allow  5,24,520  43,710" or "Fixed Pay  ...": keep them as allowances.
   for (const l of lines) {
     if (segments(l).length) continue;
     const label = rowLabel(l);
@@ -458,7 +476,7 @@ const NOT_COMPANY = /\b(allowance|incentive|bonus|basic|salary|pay|fund|providen
 const SUFFIX_RE = "(Private[ \\t]+Limited|PRIVATE[ \\t]+LIMITED|Pvt\\.?[ \\t]*Ltd\\.?|PVT\\.?[ \\t]*LTD\\.?|Limited|LIMITED|Ltd\\.?|LTD\\.?|LLP|Inc\\.?|INC\\.?|Corporation|CORPORATION)(?![A-Za-z])";
 const WEAK_SUFFIX_RE = "(Technologies|TECHNOLOGIES|Solutions|SOLUTIONS|Systems|SYSTEMS|Services|SERVICES|Labs|Software|SOFTWARE|Energy|ENERGY|Industries|INDUSTRIES)(?![A-Za-z])";
 
-/** "SUZLON ENERGY LIMITED" -> "Suzlon Energy Limited"; short acronyms (TCS, IBM) stay. */
+/** "ACME ENERGY LIMITED" -> "Acme Energy Limited"; short acronyms (TCS, IBM) stay. */
 function tidyName(n: string) {
   return n
     .split(/\s+/)
@@ -471,7 +489,7 @@ function tidyName(n: string) {
  * head (first lines) and names repeated in the text win; salary-table rows never count.
  */
 export function findEmployer(text: string): string | undefined {
-  // Letterheads often wrap: "LinkedIn Technology Information\nPrivate Limited".
+  // Letterheads often wrap: "Acme Technology Information\nPrivate Limited".
   const joined = text.replace(/([A-Za-z&.)'’-])[ \t]*\n[ \t]*((Private|PRIVATE|Pvt|PVT)\b|Limited\b|LIMITED\b|Ltd\b|LTD\b|LLP\b)/g, '$1 $2');
   const lines = joined.split(/\n/);
   const cands = new Map<string, { name: string; score: number }>();
@@ -498,7 +516,7 @@ export function findEmployer(text: string): string | undefined {
   return best?.name;
 }
 
-/** "Suzlon Allowance (Monthly) : 12,500" -> "Suzlon Allowance". */
+/** "Acme Allowance (Monthly) : 12,500" -> "Acme Allowance". */
 export function rowLabel(segment: string): string {
   const head = segment.split(/[\d₹]|\brs\.?\s|\binr\b/i)[0];
   return head

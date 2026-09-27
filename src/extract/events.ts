@@ -86,7 +86,7 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
     }
     const ctc = revisedCtc ?? (prevCtc && k ? Math.round(prevCtc * k) : undefined);
     const payoutMonth = f.payoutMonth && f.payoutMonth > from ? f.payoutMonth : undefined;
-    hikes.push({ from, payoutMonth, structure, ctc, pct: k ? k - 1 : undefined, source: `doc:appraisal:${d.name}`, scaled, gratuity: d.fields.gratuity || undefined });
+    hikes.push({ from, payoutMonth, structure, ctc, pct: k ? k - 1 : undefined, source: `doc:appraisal:${d.name}`, scaled, gratuity: d.fields.gratuity || undefined, dateGuessed: !f.effectiveFrom || undefined });
     prev = structure;
     prevCtc = ctc ?? prevCtc;
   }
@@ -114,6 +114,7 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
       cur.from = d.name;
     }
   }
+  out.grossKnown = Object.fromEntries(Object.entries(actual).filter(([, a]) => a.gross !== undefined).map(([m, a]) => [m, a.gross!]));
   out.tdsKnown = Object.fromEntries(Object.entries(actual).filter(([, a]) => a.tds !== undefined).map(([m, a]) => [m, a.tds!]));
   out.oneTimes = [
     ...out.oneTimes.filter((o) => !o.id.startsWith('actual-')),
@@ -121,10 +122,11 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
       (a.items ?? []).map((it, i) => ({
         id: `actual-${m}-${i}`,
         label: it.kind === 'arrears' && !/^arrears?$/i.test(it.label.trim()) ? `Arrears (${it.label})` : it.label,
-        kind: (it.kind === 'arrears' ? 'bonus' : /variable|performance|pli|incentive/i.test(it.label) ? 'variable' : 'bonus') as OneTime['kind'],
+        kind: (it.kind === 'perquisite' ? 'other' : it.kind === 'arrears' ? 'bonus' : /variable|performance|pli|incentive/i.test(it.label) ? 'variable' : 'bonus') as OneTime['kind'],
         amount: it.amount,
         month: m,
         taxable: true,
+        ...(it.kind === 'perquisite' ? { cash: false } : {}),
       })),
     ),
   ];
@@ -149,8 +151,11 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
   }
 
   // --- Notice period: appointment letter, or the resignation acceptance ---
-  const notice = docs.map((d) => d.facts?.noticeDays).filter((x): x is number => !!x).pop();
-  if (notice && !out.noticeDays) out.noticeDays = notice;
+  const noticeDoc = [...docs].reverse().find((d) => d.facts?.noticeDays);
+  if (noticeDoc && !out.noticeDays) {
+    out.noticeDays = noticeDoc.facts!.noticeDays;
+    out.noticeMonths = noticeDoc.facts!.noticeMonths;
+  }
 
   // --- Exit: resignation letter, then F&F slip (the slip's amounts win) ---
   const exits = docs.filter((d) => d.kind === 'resignation' || d.kind === 'fnf');
@@ -162,8 +167,9 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
         out.end = f.lastWorkingDay;
         out.endSource = 'doc';
       }
+      // Only a stated resignation date counts. A relieving or acceptance letter's own date is
+      // later than the day you resigned; using it would overstate the notice shortfall.
       if (f.resignationDate) out.resignedOn = f.resignationDate;
-      else if (d.kind === 'resignation' && d.docDate && !out.resignedOn) out.resignedOn = d.docDate;
       if (f.shortfallDays !== undefined) fnf.noticeDaysRecovered = f.shortfallDays;
       if (f.leaveDays !== undefined) fnf.leaveDays = f.leaveDays;
       if (f.leaveAmount !== undefined) fnf.leaveAmount = f.leaveAmount;
@@ -177,6 +183,13 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
     const computed = noticeShortfall(out);
     if (!fnf.noticeDaysRecovered && fnf.noticeAmount === undefined && computed) fnf.noticeDaysRecovered = computed;
     out.fnf = fnf;
+  }
+
+  // --- Work location (for professional tax): a labelled location beats a guess; newest file wins ---
+  if (out.location?.source !== 'user') {
+    const locs = docs.map((d) => d.facts?.location).filter((l): l is NonNullable<typeof l> => !!l);
+    const pick = [...locs].reverse().find((l) => l.source === 'doc') ?? locs[locs.length - 1];
+    out.location = pick ? { ...pick } : undefined;
   }
 
   // --- New-offer terms ---

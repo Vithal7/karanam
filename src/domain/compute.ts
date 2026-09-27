@@ -4,6 +4,7 @@ import { projectNextFy, type NextFyResult } from './nextFy';
 import {
   arrearsFor,
   buildLines,
+  ctcNeutralPfCut,
   endMonthOf,
   epfFor,
   finishLine,
@@ -42,6 +43,11 @@ export interface FnFItems {
   serviceYears: number;
   /** Ex gratia: each stretch of service at one monthly rate (it changes with hikes). */
   gratuityPeriods: GratuityPeriod[];
+  /**
+   * s.10(10AA) limits other than the ₹25 lakh cap: 10 months' average salary, and leave of up to
+   * 30 days per completed year at the average daily salary (basic, by the last month's rate).
+   */
+  leaveExemptLimit: number;
   /** Month the F&F is paid. */
   month: string;
   /** Month of the last working day (pro-rata salary). */
@@ -144,6 +150,10 @@ export function fnfItems(emp: Employment, fy: number, thirty = false): FnFItems 
     clawback: f.clawback || 0,
     penalty: f.penalty || 0,
     ...g,
+    leaveExemptLimit: Math.min(
+      10 * st.basic,
+      f.leaveDays ? Math.min(f.leaveDays, 30 * Math.floor(g.serviceYears)) * (st.basic / 30) : Infinity,
+    ),
     month: f.payMonth || lastMonth,
     lastMonth,
     lastMonthFactor: w ? monthFactor(lastMonth, w.start, w.end, thirty) : 0,
@@ -166,7 +176,9 @@ export function gratuityFor(emp: Employment, basic: number, f: NonNullable<Emplo
   const none = { gratuity: 0, gratuityKind: 'none' as const, gratuityExempt: 0, gratuityLabel: '', serviceYears: years, gratuityPeriods: [] as GratuityPeriod[] };
   if (f.gratuityMode === 'none') return none;
   if (f.gratuity !== undefined) {
-    const exempt = qualifies ? Math.min(f.gratuity, GRATUITY_EXEMPT_CAP) : 0;
+    // Tax-free: the least of what's paid, the 15/26 formula and ₹20 lakh; the rest is taxed.
+    const whole = Math.floor(years) + (years % 1 >= 0.5 ? 1 : 0);
+    const exempt = qualifies ? Math.min(f.gratuity, Math.round((15 / 26) * basic * whole), GRATUITY_EXEMPT_CAP) : 0;
     return { ...none, gratuity: f.gratuity, gratuityKind: qualifies ? ('gratuity' as const) : ('exgratia' as const), gratuityExempt: exempt, gratuityLabel: 'as per your F&F slip' };
   }
   if (qualifies) {
@@ -232,6 +244,12 @@ export interface SteadyState {
   tds: number;
   inHand: number;
   annualTax: number;
+}
+
+/** The structure paid in a month, with any PF-ceiling cut already taken out of the allowance. */
+function steadyStructure(emp: Employment, month: string, rules: Rules): Structure {
+  const st = structureFor(emp, month);
+  return { ...st, special: st.special - ctcNeutralPfCut(emp, st, month, rules) };
 }
 
 /** What a normal full year on this structure looks like per month (no one-offs). */
@@ -336,6 +354,17 @@ export function compute(s: Scenario, rules: Rules = bundledRules): Result {
     const recordedArrears = new Set(e.oneTimes.filter((o) => o.id.startsWith('actual-') && /arrear/i.test(o.label)).map((o) => o.month));
     const arrears = arrearsFor(e, thirty).filter((a) => !recordedArrears.has(a.month));
     const lines = buildLines(e, k, s.fy, thirty, [...e.oneTimes, ...arrears, ...(v ? [v] : [])], rules, t);
+    // Months whose gross a payslip or tax sheet records: that's what was paid. The difference
+    // (loss of pay, a part month, rounding, an item we don't model) shows as its own line.
+    const todayM = monthOf(s.today);
+    for (const l of lines) {
+      const g = e.grossKnown?.[l.month];
+      if (g === undefined || l.month >= todayM) continue;
+      const diff = Math.round(g - l.gross);
+      if (Math.abs(diff) < 1) continue;
+      l.oneTimes.push({ label: 'Difference to your payslip / tax sheet', amount: diff, taxable: true, kind: 'other' });
+      l.gross += diff;
+    }
 
     // Everything earned at earlier jobs this FY, which this payroll learns from Form 12B.
     const earlier = out;
@@ -370,14 +399,17 @@ export function compute(s: Scenario, rules: Rules = bundledRules): Result {
   const totalsGross = out.reduce((a, r) => a + (r.totalsOnly?.gross ?? 0), 0);
   const totalsTds = out.reduce((a, r) => a + (r.totalsOnly?.tds ?? 0), 0);
   const gross = all.reduce((a, l) => a + taxableGross(l), 0) + totalsGross;
-  const leave = all
-    .flatMap((l) => l.oneTimes)
-    .filter((o) => o.kind === 'leaveEncashment')
-    .reduce((a, o) => a + o.amount, 0);
-  const leaveExemption = Math.min(leave, t.leaveEncashmentCap);
+  // Leave encashed on leaving: each job's payout up to its s.10(10AA) limits, then the ₹25 lakh cap.
+  const leave = out.reduce((a, r) => {
+    const paid = r.lines.flatMap((l) => l.oneTimes).filter((o) => o.kind === 'leaveEncashment').reduce((b, o) => b + o.amount, 0);
+    return a + Math.min(paid, r.fnf?.leaveExemptLimit ?? Infinity);
+  }, 0);
+  const leaveExemption = Math.round(Math.min(leave, t.leaveEncashmentCap));
   const npsDeduction = all.reduce((a, l) => a + l.npsDeductible, 0);
   const taxable = round10(Math.max(0, gross - t.standardDeduction - leaveExemption - npsDeduction));
-  const tx = taxOn(taxable, t);
+  // s.288B: the tax payable is rounded to the nearest ₹10.
+  const tx0 = taxOn(taxable, t);
+  const tx = { ...tx0, total: round10(tx0.total) };
   const tdsTotal = all.reduce((a, l) => a + l.tds, 0) + totalsTds;
   const filing: Filing = {
     gross,
@@ -419,7 +451,7 @@ export function compute(s: Scenario, rules: Rules = bundledRules): Result {
       remainingInHand: remaining.reduce((a, m) => a + m.inHand, 0),
       remainingMonths: remaining.length,
     },
-    steady: steadyState(structureFor(last, lastMonth), lastMonth, rules, t),
+    steady: steadyState(steadyStructure(last, lastMonth, rules), lastMonth, rules, t),
     nextFy: projectNextFy(s, rules),
   };
 }

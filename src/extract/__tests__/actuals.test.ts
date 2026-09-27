@@ -183,3 +183,60 @@ describe('a payroll tax computation with off-cycle rows and a summary below', ()
     expect(parseMonthTable(X, 2026, '2026-09')['2026-04'].tds).toBe(100);
   });
 });
+
+describe('payslip rows beyond the salary structure', () => {
+  const SLIP = `Acme Software Private Limited
+Payslip for the month of August 2026
+Earnings                     Current      YTD
+Basic                        60,000       3,00,000
+HRA                          30,000       1,50,000
+Special Allowance            20,000       1,00,000
+Special Allowance Arrears    12,000       12,000
+Bonus                        50,000       50,000
+Leave Encashment             20,000       20,000
+ESOP Perquisite              80,000       80,000
+Deductions
+Provident Fund               1,800        9,000
+Voluntary PF                 5,000        25,000
+NPS                          8,400        42,000
+Professional Tax             200          1,000
+Income Tax                   15,000       75,000`;
+  const d = docFromText(SLIP, 'aug-2026.pdf');
+  it('keeps one-off rows as that month\'s payments, not a monthly allowance', () => {
+    expect(d.kind).toBe('payslip');
+    expect(d.facts?.monthly?.['2026-08']?.items).toEqual([
+      { label: 'Variable pay', amount: 50000, kind: 'bonus' },
+      { label: 'Leave encashment (in service, taxable)', amount: 20000, kind: 'bonus' },
+      { label: 'Arrears', amount: 12000, kind: 'arrears' },
+      { label: 'Perquisite (ESOP/RSU)', amount: 80000, kind: 'perquisite' },
+    ]);
+    expect(d.fields.special).toBe(20000);
+    expect(d.fields.vpf).toBe(5000);
+    expect(d.facts?.monthly?.['2026-08']?.tds).toBe(15000);
+  });
+  it('a perquisite is taxed but never reaches your bank; VPF and NPS come out of pay', () => {
+    const job = { ...blankJob('Acme', '2024-01-01'), docs: [d] };
+    const a = applyDocs(job, {}, bundledRules).emp;
+    const e = applyEvents(a, bundledRules, '2026-04').emp;
+    expect(e.structure.npsInGross).toBe(true);
+    expect(e.structure.vpf).toBe(5000);
+    const s: Scenario = { fy: 2026, today: '2026-09-27', employers: [e], settings: { thirtyDayMonth: false, nextFyHike: 0 } };
+    const aug = compute(s, bundledRules).employers[0].lines.find((l) => l.month === '2026-08')!;
+    expect(aug.noncash).toBe(80000);
+    expect(aug.epf).toBe(1800 + 5000);
+    expect(aug.nps).toBeCloseTo(8400, 0);
+    expect(aug.oneTimes.find((o) => o.cash === false)?.taxable).toBe(true);
+  });
+});
+
+describe('audit: year-to-date TDS for the job you are in now', () => {
+  it('fixes the months up to the payslip, not up to today, for the current job too', () => {
+    const st = initialState();
+    const cur = { ...blankJob('Now', '2024-01-01'), tdsKnown: { '2026-06': 15000, '2026-07': 15000, '2026-08': 15000 } };
+    const s = { ...st.scenario, fy: 2026, today: '2026-09-27', employers: [cur] };
+    const eff = effectiveScenario({ ...st, scenario: s, tdsSoFar: { [cur.id]: 75000 }, tdsAsOf: { [cur.id]: '2026-08-01' } });
+    expect(eff.employers[0].tdsKnown['2026-04']).toBe(15000); // (75,000 - 45,000 recorded) over Apr and May
+    expect(eff.employers[0].tdsKnown['2026-05']).toBe(15000);
+    expect(eff.employers[0].tdsKnown['2026-09']).toBeUndefined();
+  });
+});

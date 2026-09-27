@@ -32,7 +32,7 @@ const r0 = (n: number) => Math.round(n);
 const day = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
 const oneTime = (l: MonthLine) => l.oneTimes.reduce((a, o) => a + o.amount, 0);
-const deductions = (l: MonthLine) => l.epf + l.pt + l.nps + l.recoveries + l.tds;
+const deductions = (l: MonthLine) => (l.noncash ?? 0) + l.epf + l.pt + l.nps + l.recoveries + l.tds;
 
 function monthly(lines: MonthLine[], names: string[], withSource: boolean): Section {
   const head = ['Company', 'Month', 'Basic', 'HRA', 'Allowances', 'Bonus & one-time', 'Gross', 'EPF', 'Prof. tax', 'NPS', 'Recoveries', 'TDS', 'Deductions', 'In hand', 'Running TDS'];
@@ -89,7 +89,9 @@ function taxSection(opts: {
   const { t } = opts;
   const gross = opts.grossBy.reduce((a, [, v]) => a + v, 0);
   const taxable = Math.round(Math.max(0, gross - t.standardDeduction - opts.leaveExemption - opts.nps) / 10) * 10;
-  const tax = taxOn(taxable, t);
+  const t0 = taxOn(taxable, t);
+  // s.288B: tax rounded to the nearest ₹10.
+  const tax = { ...t0, total: Math.round(t0.total / 10) * 10 };
   const tds = opts.tdsBy.reduce((a, [, v]) => a + v, 0);
   const balance = tax.total - tds;
   const rows: Cell[][] = [

@@ -12,6 +12,7 @@ import { activeRules, watchRules } from './rules/update';
 import {
   clearSaved,
   dayBefore,
+  emptyEmployment,
   effectiveScenario,
   fyFor,
   initialState,
@@ -27,6 +28,8 @@ import { Results } from './ui/Results';
 import { DownloadMenu } from './ui/Download';
 import { pendingItems } from './ui/pending';
 import { Stages } from './ui/Stages';
+import { Filing } from './ui/Filing';
+import { Drawer } from './ui/Drawer';
 import { RulesContext } from './ui/rulesContext';
 import { JobEditStep } from './ui/steps/JobEdit';
 import { StoryStep } from './ui/steps/Story';
@@ -49,6 +52,7 @@ function rebuild(x: AppState, ids: Iterable<string>, rules: Rules): AppState {
   const notes = { ...x.notes };
   const needs = { ...x.needs };
   const tdsSoFar = { ...x.tdsSoFar };
+  const tdsAsOf = { ...(x.tdsAsOf ?? {}) };
   let employers = x.scenario.employers.map((e) => {
     if (!todo.has(e.id)) return e;
     const a = applyDocs(e, x.choices[e.id] ?? {}, rules);
@@ -63,7 +67,10 @@ function rebuild(x: AppState, ids: Iterable<string>, rules: Rules): AppState {
       const upto = a.ytdTds.asOf && a.ytdTds.asOf > since ? a.ytdTds.asOf : x.scenario.today;
       const months = Math.max(1, (Date.parse(upto) - Date.parse(since)) / (30.4 * 86_400_000) + 1);
       const earned = fixedMonthly(ev.emp.revisions.length ? ev.emp.revisions[ev.emp.revisions.length - 1].structure : ev.emp.structure) * months;
-      if (a.ytdTds.amount <= 0.4 * earned) tdsSoFar[e.id] = a.ytdTds.amount;
+      if (a.ytdTds.amount <= 0.4 * earned) {
+        tdsSoFar[e.id] = a.ytdTds.amount;
+        if (a.ytdTds.asOf) tdsAsOf[e.id] = a.ytdTds.asOf;
+      }
       else notes[e.id] = [...notes[e.id], `The tax sheet's "tax deducted so far" read as ₹${Math.round(a.ytdTds.amount).toLocaleString('en-IN')}, which is too high for your salary, so it wasn't used. Enter the right figure under "Check the numbers".`];
     }
     return ev.emp;
@@ -82,9 +89,9 @@ function rebuild(x: AppState, ids: Iterable<string>, rules: Rules): AppState {
     return out;
   });
   const last = employers[employers.length - 1];
-  // The offer's own tdsSoFar never applies (its TDS is projected).
-  delete tdsSoFar[last.id];
-  return { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, last.start) }, marks, sources, notes, needs, tdsSoFar };
+  // A job that hasn't started yet has no TDS so far; one you're in does (your current job).
+  if (!last.start || last.start > x.scenario.today) delete tdsSoFar[last.id];
+  return { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, last.start) }, marks, sources, notes, needs, tdsSoFar, tdsAsOf };
 }
 
 export function App() {
@@ -186,7 +193,8 @@ export function App() {
     });
 
   const effective = useMemo(() => effectiveScenario(st), [st]);
-  const result = useMemo(() => (['clarify', 'story', 'results'].includes(st.step) && s.employers.length ? compute(effective, rules) : null), [effective, rules, st.step, s.employers.length]);
+  const filing = st.view === 'filing';
+  const result = useMemo(() => ((filing || ['clarify', 'story', 'results'].includes(st.step)) && s.employers.length ? compute(effective, rules) : null), [effective, rules, st.step, s.employers.length, filing]);
   const story = useMemo(() => (result ? buildStory(effective, result) : []), [effective, result]);
   const events = useMemo(() => (result ? buildTimeline(effective, result) : []), [effective, result]);
 
@@ -207,6 +215,16 @@ export function App() {
     <RulesContext.Provider value={rules}>
       <div class="app">
         <header class="top">
+          <Drawer
+            view={st.view ?? 'projection'}
+            stage={stageOf(st.step)}
+            onView={(v) => setSt((x) => ({ ...x, view: v }))}
+            onStartOver={() => {
+              clearSaved();
+              setSt(initialState());
+            }}
+            canStartOver={st.step !== 'upload' || !!st.view}
+          />
           <div class="brand">
             <svg viewBox="0 0 24 24" aria-hidden="true" class="logo">
               <rect x="2" y="5" width="20" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.8" />
@@ -217,16 +235,8 @@ export function App() {
               <div class="brand-sub">Your salary, bank account and ITR · {fyLabel(s.fy)}</div>
             </div>
           </div>
-          {st.step !== 'upload' && (
-            <StartOver
-              onConfirm={() => {
-                clearSaved();
-                setSt(initialState());
-              }}
-            />
-          )}
         </header>
-        <Stages current={stageOf(st.step)} done={stageDone} onGo={goStage} />
+        {!filing && <Stages current={stageOf(st.step)} done={stageDone} onGo={goStage} />}
 
         <main class="main">
           {rulesBanner && (
@@ -239,11 +249,28 @@ export function App() {
               </p>
             </div>
           )}
-          {st.history.length > 0 && (
+          {filing && (
+            <>
+              <h1>File your ITR</h1>
+              {result && hasDocs ? (
+                <Filing r={result} s={effective} />
+              ) : (
+                <div class="card">
+                  <p>Add your offer letters, payslips or tax sheets first. Filing uses the same numbers as your projection.</p>
+                  <button type="button" class="btn primary" onClick={() => setSt((x) => ({ ...x, view: 'projection' }))}>
+                    Add documents
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+          {!filing && st.history.length > 0 && (
             <button type="button" class="btn back" onClick={back}>
               ← Back
             </button>
           )}
+          {!filing && (
+            <>
           <h1>{editing ? editing.name || TITLES['job-edit'] : TITLES[st.step]}</h1>
 
           {st.step === 'upload' && (
@@ -279,6 +306,15 @@ export function App() {
               mode={st.step === 'clarify' ? 'clarify' : 'timeline'}
               pending={pending}
               onClarify={() => go('clarify')}
+              onNoEarlierIncome={() => setSt((x) => ({ ...x, scenario: { ...x.scenario, settings: { ...x.scenario.settings, noEarlierIncome: true } } }))}
+              onAddEarlier={({ name, gross, tds }) =>
+                setSt((x) => {
+                  const first = x.scenario.employers[0];
+                  const j = emptyEmployment(name, fyStart(x.scenario.fy));
+                  const earlier: Employment = { ...j, startSource: 'user', end: dayBefore(first.start), endSource: 'user', totalsOnly: { gross, tds } };
+                  return { ...x, scenario: { ...x.scenario, employers: [earlier, ...x.scenario.employers], settings: { ...x.scenario.settings, noEarlierIncome: true } } };
+                })
+              }
               s={effective}
               r={result}
               events={events}
@@ -373,6 +409,9 @@ export function App() {
             </>
           )}
 
+            </>
+          )}
+
           <RulesFooter rules={rules} />
         </main>
       </div>
@@ -398,20 +437,5 @@ function RulesFooter({ rules }: { rules: Rules }) {
         ))}
       </ul>
     </details>
-  );
-}
-
-/** Two-tap reset (no browser confirm dialog, which embedded views block). */
-function StartOver({ onConfirm }: { onConfirm: () => void }) {
-  const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), 4000);
-    return () => clearTimeout(t);
-  }, [armed]);
-  return (
-    <button type="button" class={`btn small ${armed ? 'danger' : 'ghost'}`} onClick={() => (armed ? onConfirm() : setArmed(true))}>
-      {armed ? 'Tap again to clear' : 'Start over'}
-    </button>
   );
 }

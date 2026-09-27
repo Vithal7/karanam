@@ -19,12 +19,12 @@ export function PrevVariableQuestion(props: { emp: Employment; fy: number; onCha
   const e = props.emp;
   const target = e.variable?.annual ?? 0;
   const [amount, setAmount] = useState(target);
-  const [month, setMonth] = useState(`${props.fy}-07`);
+  const [month, setMonth] = useState('');
   const last = fyLabel(props.fy - 1);
   return (
     <div class="callout ask exit-q">
       <p>
-        <strong>Was your {last} variable pay or bonus paid this year?</strong> Last year's bonus is usually paid in June or July, based on your rating
+        <strong>Was your {last} variable pay or bonus paid this year?</strong> Last year's bonus is usually paid a few months into the new year, based on your rating. Enter the month from your payslip or the letter
         {target ? `. Your letter's target is ${rs(target)} a year.` : '.'}
       </p>
       <div class="grid2">

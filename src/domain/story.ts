@@ -1,5 +1,5 @@
 /**
- * The year in plain words, job by job: "Joined Sigma on 1 Mar 2024 at ₹67,500 basic. Hike from
+ * The year in plain words, job by job: "Joined Acme on 1 Mar 2024 at ₹60,000 basic. Hike from
  * Apr 2026 ... Last working day ... Leave encashment 22 days × ₹2,736 ...".
  */
 import { buyoutAmount, fnfItems, form12BMonth, type Result } from './compute';
@@ -20,6 +20,7 @@ export interface StoryJob {
   lines: StoryLine[];
 }
 
+const regular = (l: { basic: number; hra: number; special: number; others: number }) => l.basic + l.hra + l.special + l.others;
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 export const longDate = (d: string) =>
   d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
@@ -180,6 +181,29 @@ export function buildTimeline(s: Scenario, r: Result): TimelineEvent[] {
     else if (e.startSource === 'approx')
       ev.push({ date: e.start, monthOnly: true, job: k, text: `Joined ${name} (around this date)`, detail: `${pay}. Date taken from the appointment letter.` });
     else if (e.start) ev.push({ date: e.start, job: k, text: `${past(e.start) ? 'Joined' : 'Join'} ${name}`, detail: pay });
+
+    // PF going up without a hike: the EPF wage ceiling rose. Say what it does to pay.
+    const ls = r.employers[k]?.lines ?? [];
+    for (let i = 1; i < ls.length; i++) {
+      const a = ls[i - 1];
+      const b = ls[i];
+      if (a.factor < 1 || b.factor < 1 || b.epf <= a.epf + 1 || regular(a) === 0) continue;
+      const hiked = e.revisions.some((h) => (h.payoutMonth && h.payoutMonth > h.from ? h.payoutMonth : h.from) === b.month);
+      if (hiked) continue;
+      const cut = Math.round(a.special - b.special);
+      ev.push({
+        date: m1(b.month),
+        monthOnly: true,
+        job: k,
+        text: `PF at ${name} goes up: ${inr(a.epf)} → ${inr(b.epf)} a month`,
+        detail:
+          cut > 0
+            ? `The EPF wage ceiling rose. Your employer's PF rises by the same amount and comes out of your CTC, so your allowance drops by ${inr(cut)}: ${inr(b.epf - a.epf + cut)} less in hand each month. If your employer pays it on top instead, change it under "Check the numbers".`
+            : `The EPF wage ceiling rose, so ${inr(b.epf - a.epf)} more goes to your PF each month. If your employer takes its extra share from your allowance, change it under "Check the numbers".`,
+        tone: 'info',
+      });
+      break;
+    }
 
     // Hikes and arrears.
     const arrears = arrearsFor(e, thirty);

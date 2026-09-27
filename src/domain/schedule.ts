@@ -1,4 +1,4 @@
-import { epfCeiling, type Rules, type TaxYearRules } from '../rules';
+import { epfCeiling, type PtRule, type Rules, type TaxYearRules } from '../rules';
 import { addMonths, fyEnd, fyMonths, fyOf, fyStart, daysBetween, maxDate, minDate, monthFactor, monthName, monthOf } from './fy';
 import type { Employment, MonthLine, OneTime, Structure } from './types';
 
@@ -18,11 +18,74 @@ export function epfFor(s: Structure, month: string, rules: Rules): number {
  * "₹1,200 less misc allowance from Sep 2026" in a payroll sheet.
  */
 export function ctcNeutralPfCut(emp: Employment, s: Structure, month: string, rules: Rules): number {
-  if (s.epfMode !== 'statutory' || !emp.ctcParts?.employerPf) return 0;
+  if (s.epfMode !== 'statutory' || pfRiseMode(emp) !== 'allowance') return 0;
   const rev = emp.revisions.find((r) => r.structure === s);
   const since = rev?.from ?? (emp.start ? emp.start.slice(0, 7) : month);
   const extra = epfFor(s, month, rules) - epfFor(s, since, rules);
   return extra > 0 ? Math.min(extra, s.special) : 0;
+}
+
+/** The first month in this FY where the EPF wage ceiling rises while this job pays statutory PF above it. */
+export function pfCeilingRiseIn(emp: Employment, fy: number, rules: Rules): string | undefined {
+  const w = window(emp, fy);
+  if (!w) return undefined;
+  const months = fyMonths(fy).filter((m) => m >= w.start.slice(0, 7) && m <= w.end.slice(0, 7));
+  for (let i = 1; i < months.length; i++) {
+    const s = structureFor(emp, months[i]);
+    const before = epfCeiling(rules, months[i - 1]);
+    if (s.epfMode === 'statutory' && epfCeiling(rules, months[i]) > before && s.basic > before) return months[i];
+  }
+  return undefined;
+}
+
+/** Your answer, else: a CTC-based offer keeps the CTC, so the extra comes out of the allowance. */
+export const pfRiseMode = (emp: Employment): 'allowance' | 'employer' => emp.pfRise ?? (emp.ctcParts?.employerPf || emp.ctc ? 'allowance' : 'employer');
+
+/** The PT rule for a job's state: a rule, 'none' (no PT there), or undefined (state unknown or not covered). */
+export function ptRuleFor(emp: Employment, rules: Rules): PtRule | 'none' | undefined {
+  const st = emp.location?.state;
+  if (!st) return undefined;
+  if (rules.professionalTax.none?.[st]) return 'none';
+  return rules.professionalTax.states?.[st];
+}
+
+const slabAmount = (rule: PtRule, income: number) => {
+  for (const s of rule.slabs) if (s.upto === null || income <= s.upto) return s.amount;
+  return rule.slabs[rule.slabs.length - 1].amount;
+};
+
+/**
+ * Professional tax for one month, by the state you work in. `regular` is that month's salary as
+ * paid (prorated in joining and leaving months); `full` is a full month's fixed salary.
+ * Unknown state: the amount on your payslip (or entered).
+ */
+export function ptFor(emp: Employment, s: Structure, month: string, regular: number, full: number, factor: number, rules: Rules, employedMonths: string[]): number {
+  if (factor <= 0) return 0;
+  const rule = ptRuleFor(emp, rules);
+  if (rule === 'none') return 0;
+  if (!rule) return s.pt;
+  const m = Number(month.slice(5, 7));
+  if (rule.basis === 'monthly') {
+    const top = rule.slabs[rule.slabs.length - 1];
+    const amt = slabAmount(rule, regular);
+    return rule.special && rule.special.month === m && amt === top.amount && amt > 0 ? rule.special.amount : amt;
+  }
+  if (rule.basis === 'annual') {
+    const annual = slabAmount(rule, full * 12);
+    const each = Math.floor(annual / 12);
+    return rule.adjustMonth === m ? annual - each * 11 : each;
+  }
+  // Half-yearly: collected once per half (Apr-Sep, Oct-Mar) in its collection month, or in your
+  // last month there if you leave (or join) around it.
+  const firstHalf = m >= 4 && m <= 9;
+  const half = employedMonths.filter((x) => {
+    const k = Number(x.slice(5, 7));
+    return (k >= 4 && k <= 9) === firstHalf;
+  });
+  const collect = rule.collectMonths!.find((c) => (c >= 4 && c <= 9) === firstHalf)!;
+  const collectKey = half.find((x) => Number(x.slice(5, 7)) === collect);
+  const due = collectKey ?? half[half.length - 1];
+  return due === month ? slabAmount(rule, full * 6) : 0;
 }
 
 /** The structure actually paid in a given month: a hike counts from the month it's first paid. */
@@ -96,6 +159,7 @@ export function buildLines(
   const w = window(emp, fy);
   if (!w) return [];
   const lines: MonthLine[] = [];
+  const employed = fyMonths(fy).filter((m) => monthFactor(m, w.start, w.end, thirty) > 0);
   for (const month of fyMonths(fy)) {
     const f = monthFactor(month, w.start, w.end, thirty);
     const ots = oneTimes.filter((o) => o.month === month && o.amount);
@@ -106,13 +170,14 @@ export function buildLines(
     const hra = s.hra * f;
     const special = (s.special - ctcNeutralPfCut(emp, s, month, rules)) * f;
     const others = s.others.reduce((a, o) => a + (o.amount || 0), 0) * f;
-    const epf = epfFor(s, month, rules) * f;
-    const pt = f > 0 ? s.pt : 0;
+    const epf = (epfFor(s, month, rules) + (s.vpf ?? 0)) * f;
+    const pt = ptFor(emp, s, month, basic + hra + special + others, fixedMonthly(s), f, rules, employed);
     const npsRaw = s.npsPct * basic;
     const nps = s.npsInGross ? npsRaw : 0;
     const npsDeductible = s.npsInGross ? Math.min(npsRaw, tax.npsCapPctOfBasic * basic) : 0;
     const recoveries = emp.recoveries.filter((r) => r.month === month).reduce((a, r) => a + (r.amount || 0), 0);
-    const oneTimeLines = ots.map((o) => ({ label: o.label, amount: o.amount, taxable: o.taxable, kind: o.kind }));
+    const oneTimeLines = ots.map((o) => ({ label: o.label, amount: o.amount, taxable: o.taxable, kind: o.kind, cash: o.cash }));
+    const noncash = oneTimeLines.filter((o) => o.cash === false).reduce((a, o) => a + o.amount, 0);
     const gross = basic + hra + special + others + oneTimeLines.reduce((a, o) => a + o.amount, 0);
     lines.push({
       month,
@@ -130,6 +195,7 @@ export function buildLines(
       nps,
       npsDeductible,
       recoveries,
+      noncash,
       tds: 0,
       tdsEstimated: true,
       inHand: 0,
@@ -143,7 +209,7 @@ export const taxableOneTimes = (l: MonthLine) => l.oneTimes.filter((o) => o.taxa
 export const taxableGross = (l: MonthLine) => regularGross(l) + taxableOneTimes(l);
 
 export function finishLine(l: MonthLine) {
-  l.inHand = l.gross - l.epf - l.pt - l.nps - l.recoveries - l.tds;
+  l.inHand = l.gross - (l.noncash ?? 0) - l.epf - l.pt - l.nps - l.recoveries - l.tds;
   return l;
 }
 
@@ -152,6 +218,14 @@ export const endMonthOf = (emp: Employment, fy: number) => monthOf(window(emp, f
 /** Notice days not served: notice period minus days between resignation and last working day. */
 export function noticeShortfall(emp: Employment): number | undefined {
   if (!emp.noticeDays || !emp.resignedOn || !emp.end) return undefined;
+  if (emp.noticeMonths) {
+    // "3 months" from 15 Jan runs to 15 Apr: count the days short of that date.
+    const [y, m, d] = emp.resignedOn.split('-').map(Number);
+    const t = new Date(Date.UTC(y, m - 1 + emp.noticeMonths, 1));
+    const dim = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+    const due = `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(Math.min(d, dim)).padStart(2, '0')}`;
+    return Math.max(0, daysBetween(emp.end, due) - 1);
+  }
   const served = daysBetween(emp.resignedOn, emp.end) - 1;
   return Math.max(0, emp.noticeDays - served);
 }

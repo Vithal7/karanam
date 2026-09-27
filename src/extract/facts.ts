@@ -2,6 +2,7 @@
  * What kind of document a file is, and the dated facts it carries beyond salary components:
  * hike effective dates, last working days, F&F amounts, buyout caps, bonus clawbacks.
  */
+import { findLocation } from './location';
 import type { Facts } from '../domain/types';
 import { MON_RE, MONTHS, findDate, numbersIn, toLines, validDate, year4 } from './parse';
 
@@ -145,6 +146,7 @@ export function extractFacts(text: string, kind: DocKind): Facts {
     );
     f.resignationDate = dateAfter(flat, /resignation\s+(dated|submitted\s+on|received\s+on|on|date)|date\s+of\s+resignation|resigned\s+on/, 40);
     f.noticeDays = findNoticeDays(flat);
+    f.noticeMonths = findNoticeMonths(flat);
     f.shortfallDays =
       numberBefore(flat, /(?:shortfall|short\s*fall|unserved|not\s+served|buy\s*-?\s*out|recovery)\D{0,40}?(\d{1,3})\s*days/) ??
       numberBefore(flat, /(\d{1,3})\s*days\s*(?:of\s+)?(?:notice\s+)?(?:shortfall|short\s*fall|unserved|buy\s*-?\s*out|notice\s+recovery)/);
@@ -170,6 +172,7 @@ export function extractFacts(text: string, kind: DocKind): Facts {
 
   if (kind === 'offer') {
     f.noticeDays = findNoticeDays(flat);
+    f.noticeMonths = findNoticeMonths(flat);
     const bo = /notice\s*(period\s*)?buy\s*-?\s*out|buy\s*-?\s*out\s+(of\s+)?(your\s+)?notice|reimburse\w*\s+(the\s+)?notice/i.exec(flat);
     if (bo) {
       const around = flat.slice(bo.index, bo.index + 260);
@@ -187,6 +190,9 @@ export function extractFacts(text: string, kind: DocKind): Facts {
       }
     }
   }
+  // TAN: four letters, five digits, a letter (a PAN has five letters first).
+  f.tan = /\bTAN\b(?:\s*(?:of\s+(?:the\s+)?(?:employer|deductor)|no\.?|number|#))?\s*[:\-]?\s*([A-Z]{4}\d{5}[A-Z])\b/i.exec(t)?.[1]?.toUpperCase();
+  if (kind === 'offer' || kind === 'payslip' || kind === 'appraisal' || kind === 'taxsheet') f.location = findLocation(t);
   // Anything above ₹5 crore is a misread (an ID or a merged table cell), not a settlement amount.
   return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined && !(typeof v === 'number' && v > 50_000_000))) as Facts;
 }
@@ -248,6 +254,15 @@ export function findNoticeDays(text: string): number | undefined {
     if (days > 0 && days <= 180) return days;
   }
   return undefined;
+}
+
+/** The notice period when it's stated in months ("three months' notice"). */
+export function findNoticeMonths(text: string): number | undefined {
+  const m = /(?:notice\s+period\s*(?:of|is|:|shall\s+be|will\s+be)?\s*|notice\s+of\s+)(\d{1,2}|one|two|three|four|six)\s*(?:\(\w+\)\s*)?(?:calendar\s+)?months?|(\d{1,2}|one|two|three|four|six)\s*(?:\(\w+\)\s*)?(?:calendar\s+)?months?[’'`s]*\s+(?:written\s+)?(?:prior\s+)?notice/i.exec(text);
+  if (!m) return undefined;
+  const w = (m[1] ?? m[2]).toLowerCase();
+  const n = NUM_WORDS[w] ?? parseInt(w, 10);
+  return n > 0 && n <= 6 ? n : undefined;
 }
 
 /** Tax already deducted this year on a tax computation sheet, however the sheet phrases it. */

@@ -41,6 +41,7 @@ export function docFromExtract(x: Extracted, id: string, name: string): DocRecor
   put('gratuity', c.gratuity?.monthly);
   put('insurance', c.insurance?.monthly);
   put('pt', c.pt?.monthly);
+  put('vpf', c.vpf?.monthly);
   if (c.nps) put('nps', c.nps.pct && c.basic ? c.nps.pct * c.basic.monthly : c.nps.monthly);
   put('ctc', c.ctc?.annual);
   put('joining', c.joining?.annual);
@@ -153,7 +154,10 @@ export function applyDocs(
       revised[c.field] = newest.value;
       fieldMonth[c.field] = oldest.docDate && monthOf(oldest.docDate);
       sources[c.field] = `${label(oldest)} → ${label(newest)}`;
-      const m = newest.docDate ? monthOf(newest.docDate) : undefined;
+      // The new value applies from the earliest file that shows it (it may be earlier still:
+      // you're asked to confirm the month).
+      const firstNew = [...c.options].reverse().find((o) => o.value === newest.value) ?? newest;
+      const m = firstNew.docDate ? monthOf(firstNew.docDate) : undefined;
       if (m && (!revisionMonth || m > revisionMonth)) revisionMonth = m;
     } else {
       const o = c.options.find((x) => x.docId === ch) ?? c.options[0];
@@ -176,7 +180,10 @@ export function applyDocs(
     if (others.length) s.others = others.map((k) => ({ name: k.slice(6), amount: vals[k] }));
     if (vals.nps !== undefined && s.basic) {
       s.npsPct = Math.round((vals.nps / s.basic) * 1000) / 1000;
+      // NPS shown as a deduction on a payslip is carved out of the pay above it.
+      if (docs.some((d) => d.kind === 'payslip' && d.fields.nps !== undefined)) s.npsInGross = true;
     }
+    if (vals.vpf !== undefined) s.vpf = vals.vpf;
     if (vals.epf !== undefined) {
       const { mode, amount } = epfModeFor(vals.epf, s.basic, vals === base ? fieldMonth.epf ?? month : month, rules);
       s.epfMode = mode;
@@ -213,7 +220,8 @@ export function applyDocs(
   // CTC-only parts: newest file that lists each.
   const ctcParts: NonNullable<Employment['ctcParts']> = { ...(emp.ctcParts ?? {}) };
   for (const k of ['employerPf', 'gratuity', 'insurance'] as const) {
-    const d = [...docs].reverse().find((x) => x.fields[k] !== undefined);
+    // Only letters describe the CTC; a payslip's "Provident Fund" row is your own deduction.
+    const d = [...docs].reverse().find((x) => x.fields[k] !== undefined && (x.kind === 'offer' || x.kind === 'appraisal'));
     if (d) ctcParts[k] = d.fields[k];
   }
   out.ctcParts = ctcParts;

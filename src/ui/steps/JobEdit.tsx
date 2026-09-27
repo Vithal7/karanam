@@ -10,6 +10,8 @@ import { OneTimeEditor, StructureEditor } from '../Editors';
 import { ExitEditor, HikesEditor, JoiningEditor, VariableEditor } from '../JobSections';
 import { ReconcileCard } from '../Reconcile';
 import { TdsMonths } from '../TdsMonths';
+import { LocationCard } from '../Location';
+import { useRules } from '../rulesContext';
 import type { ReadFile } from '../Uploader';
 
 /** Everything about one job: its files, salary and hikes, and how you joined or left it. */
@@ -32,6 +34,7 @@ export function JobEditStep(props: {
   onDone: () => void;
 }) {
   const { s, index } = props;
+  const rules = useRules();
   const e = s.employers[index];
   const prev = s.employers[index - 1];
   const isNew = index === s.employers.length - 1;
@@ -110,6 +113,7 @@ export function JobEditStep(props: {
             month={monthOf(maxDate(e.start || fyStart(s.fy), fyStart(s.fy)))}
             onAddAllowance={(m) => set({ structure: { ...e.structure, others: [...e.structure.others, { name: 'Other allowance', amount: m }] } })}
           />
+          <LocationCard emp={e} rules={rules} onChange={props.onChange} />
           <HikesEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} today={s.today} />
 
           {(isNew || index > 0) && (
@@ -124,6 +128,14 @@ export function JobEditStep(props: {
                 </Field>
               </div>
               {isNew && <VariableEditor emp={e} onChange={props.onChange} />}
+              {isNew && e.start && e.start <= s.today && (
+                <Field
+                  label="Income tax deducted here this year (optional)"
+                  hint={props.ytdHint !== undefined ? `Your latest payslip shows ${rs(props.ytdHint)} year-to-date.` : "Year-to-date TDS from your last payslip. Leave empty and we'll estimate what payroll deducted."}
+                >
+                  <Money value={props.tdsSoFar ?? 0} onChange={(v) => props.onTdsSoFar(v || null)} ariaLabel="TDS so far" />
+                </Field>
+              )}
               {isNew && <TdsMonths emp={e} s={s} onChange={props.onChange} />}
             </div>
           )}

@@ -76,8 +76,9 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
 export function docsFromText(text: string, name: string): { docs: DocRecord[]; alternatives: DocRecord[]; warnings?: string[] } {
   if (isNote(text)) {
     const n = parseNote(text, name);
-    const docs = [n.offer, n.exit].filter((d): d is DocRecord => !!d).map(withinLimits);
-    if (docs.length) return { docs, alternatives: n.alternatives.map(withinLimits), warnings: n.warnings };
+    const typed = (d: DocRecord) => (d.employer ? { ...d, employerTyped: true } : d);
+    const docs = [n.offer, n.current, n.exit, n.hike].filter((d): d is DocRecord => !!d).map(withinLimits).map(typed);
+    if (docs.length) return { docs, alternatives: n.alternatives.map(withinLimits).map(typed), warnings: n.warnings };
   }
   return { docs: [docFromText(text, name)], alternatives: [] };
 }
@@ -95,13 +96,14 @@ export const jobKeys = (e: Employment) =>
 
 const compact = (k: string) => k.replace(/\s+/g, '');
 const initials = (k: string) => k.split(' ').map((w) => w[0]).join('');
-/** Same company: "acme" and "acme software", "acmesoftware" (an email domain) and "acme software". */
-const matches = (a: string, keys: Set<string>) =>
-  [...keys].some((k) => k === a || k.startsWith(`${a} `) || a.startsWith(`${k} `) || compact(k) === compact(a) || prefixOf(compact(k), compact(a)));
+/** Same company, as two letters name it: the same name once "Pvt Ltd", "Technologies" and the like are dropped. */
+const matches = (a: string, keys: Set<string>) => [...keys].some((k) => k === a || compact(k) === compact(a));
+/** A name you typed may be short ("Suzlon" for Suzlon Energy): it matches the start of a full name. */
+const matchesTyped = (a: string, keys: Set<string>) => matches(a, keys) || [...keys].some((k) => k.startsWith(`${a} `) || a.startsWith(`${k} `) || prefixOf(compact(k), compact(a)));
 /** One name runs on from the other ("acme" -> "acmesoftware"): only for names long enough to mean something. */
 const prefixOf = (x: string, y: string) => Math.min(x.length, y.length) >= 5 && (x.startsWith(y) || y.startsWith(x));
 /** A company guessed from an email domain: also "tcs" for Tata Consultancy Services. */
-const matchesWeak = (a: string, keys: Set<string>) => matches(a, keys) || [...keys].some((k) => k.includes(' ') && initials(k) === compact(a));
+const matchesWeak = (a: string, keys: Set<string>) => matchesTyped(a, keys) || [...keys].some((k) => k.includes(' ') && initials(k) === compact(a));
 
 const isBlank = (e: Employment) => !e.docs.length && !e.structure.basic && !e.totalsOnly && DEFAULT_NAME.test(e.name);
 
@@ -196,22 +198,37 @@ export function assignDocs(
     if (blank) {
       blank.name = name;
       blank.start = start;
+      blank.fromFiles = true;
       return blank;
     }
     // Room for old jobs' files while sorting; the timeline check below sets them aside.
     if (jobs.length >= MAX_EMPLOYERS + 3) return undefined;
-    const j = blankJob(name, start);
+    const j = { ...blankJob(name, start), fromFiles: true };
     jobs.push(j);
     return j;
   };
 
   // Offers first: they lay out the timeline.
-  const ordered = [...docs].sort((a, b) => (a.kind === 'offer' ? 0 : 1) - (b.kind === 'offer' ? 0 : 1) || (docWhen(a) ?? '').localeCompare(docWhen(b) ?? ''));
+  // Undated offers with no company last: they can't lay out anything.
+  const rank = (d: DocRecord) => (d.kind !== 'offer' ? 2 : docWhen(d) || d.employer ? 0 : 3);
+  const ordered = [...docs].sort((a, b) => rank(a) - rank(b) || (docWhen(a) ?? '').localeCompare(docWhen(b) ?? ''));
   for (const d of ordered) {
     let key = companyKey(d.employer);
-    let target = key ? jobs.find((e) => (d.employerWeak ? matchesWeak : matches)(key, jobKeys(e))) : undefined;
-    // A company guessed from an email domain that matches no job: place it by date instead.
-    if (!target && d.employerWeak) key = '';
+    const match = d.employerWeak ? matchesWeak : d.employerTyped ? matchesTyped : matches;
+    // Two offers with joining dates far apart are two jobs, whatever their names.
+    const sameStart = (e: Employment) => d.kind !== 'offer' || !d.doj || !e.docs.some((x) => x.kind === 'offer' && x.doj && Math.abs(daysApart(x.doj, d.doj!)) > 45);
+    let target = key ? jobs.find((e) => match(key, jobKeys(e)) && sameStart(e)) : undefined;
+    // A company guessed from an email domain that matches no job is dropped: place it by date.
+    if (!target && d.employerWeak) {
+      key = '';
+      d.employer = undefined;
+      d.employerWeak = undefined;
+    }
+    // An offer with neither a company nor a date can't be placed: you pick its job.
+    if (!target && !key && d.kind === 'offer' && !docWhen(d) && jobs.some((e) => !isBlank(e))) {
+      unassigned.push(d);
+      continue;
+    }
     if (!target && d.kind === 'offer') {
       // Same joining date as a job without a name yet: same job. Otherwise a new job.
       const when = docWhen(d);
@@ -271,7 +288,9 @@ export function checkTimeline(jobs: Employment[], fy: number): { employers: Empl
   const aside: AsideDoc[] = [];
   const real = jobs.filter((e) => !isBlank(e));
   const newest = real.map(jobStart).filter(Boolean).sort().pop();
-  const year = newest && newest > fyEnd(fy) ? fyOf(newest) : fy;
+  // A job starting after this year moves the year only when no job is in this one.
+  const earliest = real.map(jobStart).filter(Boolean).sort()[0];
+  const year = newest && newest > fyEnd(fy) && earliest && earliest > fyEnd(fy) ? fyOf(earliest) : fy;
   const from = fyStart(year);
   const inYear = (iso?: string) => !!iso && iso >= from && iso <= fyEnd(year);
 
@@ -302,7 +321,7 @@ export function checkTimeline(jobs: Employment[], fy: number): { employers: Empl
     else if (!left && !activeInYear) {
       // Only a later job with its own salary papers can push this one out: never set aside a
       // job's salary for a job that exists only through an email or a resignation.
-      const salaried = (o: Employment) => o.docs.some((d) => d.kind === 'offer' || d.kind === 'appraisal' || d.kind === 'payslip');
+      const salaried = (o: Employment) => o.docs.some((d) => (d.kind === 'offer' && (d.doj || d.docDate)) || d.kind === 'appraisal' || d.kind === 'payslip');
       const later = out.find((o) => o !== e && !isBlank(o) && salaried(o) && companyKey(o.name) !== companyKey(e.name) && (starts.get(o.id) ?? '') > start && (starts.get(o.id) ?? '') <= from);
       if (later) reason = `You joined ${later.name} on ${long(starts.get(later.id)!)}, before ${fyName(year)} began, so this is from an earlier job.`;
     }

@@ -186,6 +186,15 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
     const computed = noticeShortfall(out);
     if (!fnf.noticeDaysRecovered && fnf.noticeAmount === undefined && computed) fnf.noticeDaysRecovered = computed;
     out.fnf = fnf;
+  } else if (out.endSource === 'doc') {
+    // The paper that gave your last day is gone: so is what it said.
+    out.end = '';
+    out.endSource = undefined;
+    out.resignedOn = undefined;
+    if (out.fnf) {
+      const { leaveAmount: _l, noticeAmount: _n, gratuity: _g, payMonth: _p, penalty: _pe, ...rest } = out.fnf;
+      out.fnf = { ...rest, noticeDaysRecovered: 0, ...(rest.clawbackManual ? { clawback: 0, clawbackManual: false } : {}) };
+    }
   }
 
   // --- Work location (for professional tax): a labelled location beats a guess; newest file wins ---

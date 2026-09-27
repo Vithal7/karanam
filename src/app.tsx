@@ -5,6 +5,7 @@ import { fixedMonthly } from './domain/schedule';
 import { buildStory, buildTimeline } from './domain/story';
 import type { DocRecord, Employment, Facts } from './domain/types';
 import { applyEvents } from './extract/events';
+import { companyKey } from './extract/facts';
 import { assignDocs, blankJob, docFromText, docsFromText, orderJobs } from './extract/intake';
 import { applyDocs, mergeDocs, baseDocs } from './extract/merge';
 import { isNote } from './extract/note';
@@ -27,7 +28,7 @@ import { Toggle } from './ui/controls';
 import { Continue } from './ui/Continue';
 import { OneTimeEditor } from './ui/Editors';
 import { Results } from './ui/Results';
-import { CompareOffers, withOffer } from './ui/Compare';
+import { CompareOffers, compareMode, withOffer } from './ui/Compare';
 import { DownloadMenu } from './ui/Download';
 import { pendingItems } from './ui/pending';
 import { Stages } from './ui/Stages';
@@ -48,7 +49,11 @@ const TITLES: Record<StepId, string> = {
 };
 
 /** Rebuild the named jobs from their files, then keep the timeline consistent. */
-function rebuild(x: AppState, ids: Iterable<string>, rules: Rules): AppState {
+function rebuild(x0: AppState, ids: Iterable<string>, rules: Rules): AppState {
+  // A job made only to hold files goes when its last file does (an edited note, a removed file).
+  const gone = x0.scenario.employers.filter((e) => e.fromFiles && !e.docs.length && !e.totalsOnly);
+  const kept = x0.scenario.employers.filter((e) => !gone.includes(e));
+  const x = gone.length && kept.length ? { ...x0, scenario: { ...x0.scenario, employers: kept } } : x0;
   const todo = new Set(ids);
   const marks = { ...x.marks };
   const sources = { ...x.sources };
@@ -94,7 +99,11 @@ function rebuild(x: AppState, ids: Iterable<string>, rules: Rules): AppState {
   const last = employers[employers.length - 1];
   // A job that hasn't started yet has no TDS so far; one you're in does (your current job).
   if (!last.start || last.start > x.scenario.today) delete tdsSoFar[last.id];
-  return { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, last.start) }, marks, sources, notes, needs, tdsSoFar, tdsAsOf };
+  const out = { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, employers) }, marks, sources, notes, needs, tdsSoFar, tdsAsOf };
+  // The job on screen is gone: step back.
+  if (out.step === 'job-edit' && out.editing && !employers.some((e) => e.id === out.editing))
+    return { ...out, step: out.history[out.history.length - 1] ?? 'story', history: out.history.slice(0, -1), editing: null };
+  return out;
 }
 
 export function App() {
@@ -143,13 +152,14 @@ export function App() {
   const setJob = (e: Employment) =>
     setSt((x) => {
       const employers = x.scenario.employers.map((j) => (j.id === e.id ? e : j));
-      const last = employers[employers.length - 1];
-      return { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, last.start) } };
+      return { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, employers) } };
     });
 
   /** New files: read them, sort them into jobs by company and date, rebuild those jobs. */
-  const ingest = (files: ReadFile[]) =>
-    setSt((x) => {
+  const ingest = (files: ReadFile[]) => setSt((x) => ingestInto(x, files));
+  /** New files into a state: read them, sort them into jobs by company and date, rebuild those jobs. */
+  const ingestInto = (x: AppState, files: ReadFile[]): AppState => {
+    {
       // A typed note can describe two jobs (the offer and the job you're leaving): one record each.
       const read = files.map((f) => ({ f, ...docsFromText(f.text, f.name) }));
       const docs = read.flatMap((r) => r.docs);
@@ -160,11 +170,12 @@ export function App() {
       for (const r of read) {
         for (const d of r.docs.filter((dd) => dd.kind === 'offer')) {
           const job = employers.find((e) => e.docs.some((dd) => dd.id === d.id));
-          if (job) warnings[job.id] = [...(warnings[job.id] ?? []), ...(r.warnings ?? r.f.x.warnings).map((w) => `${r.f.name}: ${w}`)];
+          if (job) warnings[job.id] = [...new Set([...(warnings[job.id] ?? []).filter((w) => !w.startsWith(`${r.f.name}: `)), ...(r.warnings ?? r.f.x.warnings).map((w) => `${r.f.name}: ${w}`)])];
         }
       }
       return rebuild({ ...x, scenario: { ...x.scenario, employers }, inbox: [...x.inbox, ...unassigned], aside: [...x.aside, ...aside], warnings, timelineOk: false, alternatives: [...(x.alternatives ?? []), ...alts] }, changed, rules);
-    });
+    }
+  };
 
   /** An offer you're weighing, built like a job from its letter or note, but kept off the timeline. */
   const offerJob = (d: DocRecord, fy: number): Employment => {
@@ -185,8 +196,11 @@ export function App() {
       const alt = x.alternatives?.find((a) => a.id === id);
       if (!alt) return x;
       const cur = x.scenario.employers[x.scenario.employers.length - 1];
-      const next = withOffer(x.scenario, alt).employers;
-      const out = { ...x, alternatives: [...(x.alternatives ?? []).filter((a) => a.id !== id), cur], scenario: { ...x.scenario, employers: next } };
+      // Joining another offer instead: the one you had becomes the alternative. Staying was the
+      // other option: the offer is added after your job.
+      const replacing = compareMode(x.scenario) === 'replace';
+      const next = withOffer(x.scenario, { ...alt, asked: {} }).s.employers.map((e) => (e.id === alt.id ? { ...e, form12BConfirmed: false } : e));
+      const out = { ...x, alternatives: [...(x.alternatives ?? []).filter((a) => a.id !== id), ...(replacing ? [cur] : [])], scenario: { ...x.scenario, employers: next }, timelineOk: false };
       return rebuild(out, [alt.id], rules);
     });
 
@@ -211,18 +225,33 @@ export function App() {
     });
   const choose = (id: string, field: string, choice: string) =>
     setSt((x) => rebuild({ ...x, choices: { ...x.choices, [id]: { ...(x.choices[id] ?? {}), [field]: choice } } }, [id], rules));
-  const addFilesTo = (id: string, files: ReadFile[]) => {
-    // A typed note can be about two jobs: sort it like any new file.
-    const notes = files.filter((f) => isNote(f.text));
-    if (notes.length) ingest(notes);
-    files = files.filter((f) => !isNote(f.text));
-    if (!files.length) return;
+  /**
+   * Files added on one job's page belong to that job: a hike, an exit, its payslips. Only an offer
+   * from another company (or starting on another date) in a typed note is sorted like a new file.
+   */
+  const addFilesTo = (id: string, files: ReadFile[]) =>
     setSt((x) => {
-      const docs: DocRecord[] = files.map((f) => docFromText(f.text, f.name));
-      const employers = x.scenario.employers.map((j) => (j.id === id ? { ...j, docs: [...j.docs, ...docs] } : j));
-      return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [id], rules);
+      const job = x.scenario.employers.find((j) => j.id === id);
+      const read = files.map((f) => ({ f, ...(isNote(f.text) ? docsFromText(f.text, f.name) : { docs: [docFromText(f.text, f.name)], alternatives: [] as DocRecord[] }) }));
+      const elsewhere = (d: DocRecord) =>
+        d.kind === 'offer' &&
+        isNote(d.text ?? '') &&
+        !!job &&
+        ((!!d.employer && companyKey(d.employer) !== companyKey(job.name) && !companyKey(job.name).startsWith(companyKey(d.employer))) || (!!d.doj && !!job.start && Math.abs(Date.parse(d.doj) - Date.parse(job.start)) > 45 * 86_400_000));
+      const mine = read.flatMap((r) => r.docs.filter((d) => !elsewhere(d)));
+      const others = read.flatMap((r) => r.docs.filter(elsewhere));
+      let employers = x.scenario.employers.map((j) => (j.id === id ? { ...j, docs: [...j.docs, ...mine] } : j));
+      const changed = new Set([id]);
+      let inbox = x.inbox;
+      if (others.length) {
+        const a = assignDocs(employers, others, x.scenario.fy);
+        employers = a.employers;
+        inbox = [...inbox, ...a.unassigned];
+        for (const c of a.changed) changed.add(c);
+      }
+      const alts = read.flatMap((r) => r.alternatives).map((d) => offerJob(d, x.scenario.fy));
+      return rebuild({ ...x, inbox, scenario: { ...x.scenario, employers }, alternatives: [...(x.alternatives ?? []), ...alts] }, changed, rules);
     });
-  };
   /** The user corrects a file's type: re-read its text as that type and rebuild the job. */
   const reclassify = (jobId: string, docId: string, kind: DocRecord['kind']) =>
     setSt((x) => {
@@ -238,11 +267,13 @@ export function App() {
     if (isNote(text) || isNote(doc.text ?? '')) {
       const old = doc.text;
       const name = doc.name.replace(/\s*\(.*\)$/, '');
+      // One step: the note's old records out, the new ones in, so a job it still describes stays.
       setSt((x) => {
         const employers = x.scenario.employers.map((j) => ({ ...j, docs: j.docs.filter((d) => d.id !== docId && !(old && d.text === old)) }));
-        return rebuild({ ...x, scenario: { ...x.scenario, employers }, alternatives: (x.alternatives ?? []).filter((a) => !a.docs.some((d) => old && d.text === old)) }, employers.map((j) => j.id), rules);
+        const cleared = { ...x, scenario: { ...x.scenario, employers }, alternatives: (x.alternatives ?? []).filter((a) => !a.docs.some((d) => old && d.text === old)) };
+        const next = ingestInto(cleared, [{ name, text, x: parseText(text) }]);
+        return rebuild(next, next.scenario.employers.map((j) => j.id), rules);
       });
-      ingest([{ name, text, x: parseText(text) }]);
       return;
     }
     setSt((x) => {

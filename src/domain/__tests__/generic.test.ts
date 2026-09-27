@@ -58,9 +58,31 @@ describe('comparing offers', () => {
   it('puts the other offer in place of the new job, keeping your answers', () => {
     const cur = job({ id: 'b', name: 'B', start: '2026-12-01', form12B: '2027-01', form12BConfirmed: true });
     const alt = job({ id: 'c', name: 'C', start: '2026-12-01', structure: { ...cur.structure, basic: 80000 } });
-    const s = withOffer(scenario([job({ end: '2026-11-30' }), cur]), alt);
+    const s = withOffer(scenario([job({ end: '2026-11-30' }), cur]), alt).s;
     expect(s.employers.map((e) => e.name)).toEqual(['A', 'C']);
     expect(s.employers[1].form12B).toBe('2027-01');
     expect(compute(s).steady.gross).toBeGreaterThan(compute(scenario([job({ end: '2026-11-30' }), cur])).steady.gross);
+  });
+});
+
+describe('comparing when you are staying', () => {
+  const stay = job({ id: 'a', name: 'A', start: '2024-06-01', end: '' });
+  const beta = job({ id: 'b', name: 'Beta', start: '2026-12-01', startSource: 'doc', structure: { ...stay.structure, basic: 80000 }, buyout: undefined });
+  it('stay vs leave and join: your job ends the day before, it is not replaced', () => {
+    const { s } = withOffer(scenario([stay]), beta);
+    expect(s.employers.map((e) => [e.name, e.start, e.end])).toEqual([
+      ['A', '2024-06-01', '2026-11-30'],
+      ['Beta', '2026-12-01', ''],
+    ]);
+  });
+  it('an offer joining before your last day moves the last day, never both salaries in a month', () => {
+    const leaving = job({ id: 'a', name: 'A', end: '2026-11-11', endSource: 'doc' });
+    const bp = job({ id: 'bp', name: 'BP', start: '2026-11-12', startSource: 'doc', buyout: { mode: 'actuals' } });
+    const early = job({ id: 'c', name: 'Beta', start: '2026-10-01', startSource: 'doc' });
+    const { s } = withOffer(scenario([leaving, bp]), early);
+    expect(s.employers[0].end).toBe('2026-09-30');
+    const oct = compute(s).months.find((m) => m.month === '2026-10')!;
+    expect(oct.lines.length).toBe(1);
+    expect(s.employers[1].buyout?.mode).toBe('none');
   });
 });

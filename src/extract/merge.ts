@@ -220,15 +220,16 @@ export function applyDocs(
   if (base.basic !== undefined) out.splitGuessed = false;
   // Only a CTC, no breakup: a typical split (basic half of the fixed pay, HRA half of basic, the
   // rest special allowance, after employer PF and gratuity), marked as a guess for you to check.
-  if (!out.structure.basic && base.ctc) {
-    const fixed = base.ctc - (base.variable ?? 0);
+  const anyPay = ['basic', 'hra', 'special'].some((k) => base[k] !== undefined) || Object.keys(base).some((k) => k.startsWith('other:'));
+  if (!out.structure.basic && base.ctc && !anyPay) {
+    const fixed = base.fixed ?? base.ctc - (base.variable ?? 0);
     const month = monthOf(out.start || firstMonth + '-01');
     const basic = Math.round(fixed / 12 / 2);
     const employerPf = Math.round(rules.epf.rate * Math.min(basic, epfCeiling(rules, month)));
     const gratuity = Math.round(0.0481 * basic);
     const hra = Math.round(basic / 2);
     const special = Math.max(0, Math.round(fixed / 12) - basic - hra - employerPf - gratuity);
-    out.structure = { ...out.structure, basic, hra, special, epfMode: 'statutory', epf: employerPf };
+    out.structure = { ...out.structure, basic, hra, special, others: [], epfMode: 'statutory', epf: employerPf };
     out.ctcParts = { ...out.ctcParts, employerPf, gratuity };
     out.splitGuessed = true;
     for (const f of ['basic', 'hra', 'special']) marks[f] = 'guessed';

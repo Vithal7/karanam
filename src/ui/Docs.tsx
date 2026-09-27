@@ -70,7 +70,13 @@ export function DocsPanel(props: {
                   type="button"
                   class="btn icon"
                   aria-label={`Remove ${d.name}`}
-                  onClick={() => confirm(`Remove ${d.name}? Its figures will no longer be used for ${emp.name || 'this job'}.`) && props.onRemove(d.id)}
+                  onClick={() =>
+                    confirm(
+                      emp.fromFiles && emp.docs.length === 1
+                        ? `Remove ${d.name}? ${emp.name || 'This job'} came only from this file, so the job goes too.`
+                        : `Remove ${d.name}? Its figures will no longer be used for ${emp.name || 'this job'}.`,
+                    ) && props.onRemove(d.id)
+                  }
                 >
                   ×
                 </button>

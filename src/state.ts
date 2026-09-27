@@ -109,7 +109,17 @@ export const earlierJobs = (s: Scenario) => s.employers.slice(0, -1);
 export const canAddJob = (s: Scenario) => s.employers.length < MAX_EMPLOYERS;
 
 /** The FY the offer's cash flow belongs to: the joining FY if it's in the future. */
-export const fyFor = (today: string, start: string) => fyOf(maxDate(today, start || today));
+/**
+ * The financial year to show: the one you're in today. Only when every job starts in a later year
+ * (a first job that hasn't started) does it move to that year: joining a new job next April must
+ * not wipe out the job you're in now.
+ */
+export const fyFor = (today: string, employers: { start: string; totalsOnly?: unknown }[]) => {
+  const now = fyOf(today);
+  const starts = employers.map((e) => e.start).filter(Boolean);
+  if (!starts.length || starts.some((d) => d <= fyEnd(now))) return now;
+  return fyOf(starts.sort()[0]);
+};
 
 /** Joining after 1 April means earlier income this FY may need accounting for. */
 export const joinsMidYear = (s: Scenario) => offerOf(s).start > fyStart(s.fy);
@@ -191,8 +201,7 @@ export const load = (): AppState | null => {
     if (!st) return null;
     // "Today" moves on between visits: past vs upcoming depends on it.
     const today = todayISO();
-    const last = st.scenario.employers[st.scenario.employers.length - 1];
-    return { ...st, scenario: { ...st.scenario, today, fy: fyFor(today, last?.start ?? today) } };
+    return { ...st, scenario: { ...st.scenario, today, fy: fyFor(today, st.scenario.employers) } };
   } catch {
     return null;
   }

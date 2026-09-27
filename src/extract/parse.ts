@@ -77,7 +77,7 @@ const LABELS: [ComponentKey, RegExp][] = [
   ['insurance', /insurance|mediclaim|medical\s+cover|group\s+(health|term)/i],
   ['pt', /professional\s+tax|prof\.?\s*tax|\bp\.?\s*tax\b/i],
   ['tds', /income\s+tax|\btds\b/i],
-  ['basic', /\bbasic\b/i],
+  ['basic', /\bbasic\b|\bbase\s+(salary|pay)\b/i],
   ['hra', /\bhra\b|house\s+rent/i],
   ['lta', /\blta\b|leave\s+travel/i],
   ['conveyance', /conveyance|transport\s+allowance/i],
@@ -199,16 +199,20 @@ type Columns = 'monthly-first' | 'annual-first' | 'annual-only' | 'monthly-only'
  */
 function detectColumns(lines: string[]): Columns | undefined {
   for (const l of lines) {
-    const mi = l.search(/monthly|per\s+month|p\.?m\.?\b/i);
-    const ai = l.search(/annual|yearly|per\s+annum|p\.?a\.?\b/i);
+    if (/[.!?]$/.test(l)) continue;
+    const mi = l.search(/\bmonthly\b|per\s+month|(?<![a-z])p\.?m\.?(?![a-z])/i);
+    const ai = l.search(/\bannual(ly)?\b|\byearly\b|per\s+annum|(?<![a-z])p\.?a\.?(?![a-z])/i);
     if (mi >= 0 && ai >= 0 && l.length < 120) return mi < ai ? 'monthly-first' : 'annual-first';
   }
-  // A header with one period and no figures of its own.
-  for (const l of lines) {
-    if (l.length > 100 || numbersIn(l).length) continue;
+  // A table header with one period and no figures of its own, right above the salary rows. A
+  // sentence ("Your salary will be reviewed annually.") is not a header.
+  for (const [i, l] of lines.entries()) {
+    if (l.length > 80 || numbersIn(l).length || /[.!?]$/.test(l) || l.split(' ').length > 9) continue;
     if (!/component|particular|salary|compensation|structure|break\s*-?up|amount|earnings|ctc|\(inr|\(rs|₹/i.test(l)) continue;
-    const m = /monthly|per\s+month|p\.?\s*m\.?\b|\/\s*month/i.test(l);
-    const a = /annual|yearly|per\s+annum|p\.?\s*a\.?\b|\/\s*(year|annum)/i.test(l);
+    const rowsBelow = lines.slice(i + 1, i + 3).some((x) => segments(x).length > 0 && numbersIn(x).filter((n) => !n.pct).length === 1);
+    if (!rowsBelow) continue;
+    const m = /\bmonthly\b|per\s+month|(?<![a-z])p\.?\s*m\.?(?![a-z])|\/\s*month/i.test(l);
+    const a = /\bannual(ly)?\b|\byearly\b|per\s+annum|(?<![a-z])p\.?\s*a\.?(?![a-z])|\/\s*(year|annum)/i.test(l);
     if (m !== a) return a ? 'annual-only' : 'monthly-only';
   }
   return undefined;
@@ -373,7 +377,7 @@ export function parseText(text: string): Extracted {
         monthly = v > 150_000 ? v / 12 : v;
       }
       annual = annual ?? monthly * 12;
-    } else if (pct !== undefined && (key === 'variable' || key === 'nps')) {
+    } else if (pct !== undefined && (key === 'variable' || key === 'nps' || key === 'basic' || key === 'hra')) {
       // "Variable pay: 10% of CTC", "NPS: 10% of basic" - resolved later.
       components[key] = { key, label: NICE[key], monthly: 0, annual: 0, confidence: 'guessed', pct };
       continue;
@@ -416,7 +420,18 @@ export function parseText(text: string): Extracted {
     ctc = components.ctc.annual;
   }
 
-  // Percent-only rows.
+  // Percent-only rows: basic as a share of CTC, HRA as a share of basic.
+  const bp = components.basic;
+  if (bp && !bp.annual && bp.pct && ctc) {
+    bp.annual = ctc * bp.pct;
+    bp.monthly = bp.annual / 12;
+  }
+  const hp = components.hra;
+  if (hp && !hp.annual && hp.pct && components.basic?.monthly) {
+    hp.monthly = components.basic.monthly * hp.pct;
+    hp.annual = hp.monthly * 12;
+  }
+  for (const k of ['basic', 'hra'] as const) if (components[k] && !components[k]!.annual) delete components[k];
   const v = components.variable;
   if (v && !v.annual && v.pct && ctc) {
     v.annual = ctc * v.pct;

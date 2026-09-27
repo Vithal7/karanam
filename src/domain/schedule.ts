@@ -6,10 +6,15 @@ export const fixedMonthly = (s: Structure) =>
   s.basic + s.hra + s.special + s.others.reduce((a, o) => a + (o.amount || 0), 0);
 
 /** Employee PF for a full month of this structure in the given wage month. */
-export function epfFor(s: Structure, month: string, rules: Rules): number {
-  if (s.epfMode === 'fixed') return s.epf || 0;
-  if (s.epfMode === 'fullBasic') return rules.epf.rate * s.basic;
-  return rules.epf.rate * Math.min(s.basic, epfCeiling(rules, month));
+/**
+ * Your PF for a month. `factor` is the share of the month paid (joining, leaving, unpaid days):
+ * PF is 12% of the basic actually earned, capped at the wage ceiling, so a part month above the
+ * ceiling still pays the full capped amount.
+ */
+export function epfFor(s: Structure, month: string, rules: Rules, factor = 1): number {
+  if (s.epfMode === 'fixed') return (s.epf || 0) * factor;
+  if (s.epfMode === 'fullBasic') return rules.epf.rate * s.basic * factor;
+  return rules.epf.rate * Math.min(s.basic * factor, epfCeiling(rules, month));
 }
 
 /**
@@ -185,14 +190,15 @@ export function buildLines(
     const dim = thirty ? 30 : daysInMonth(+month.slice(0, 4), +month.slice(5, 7));
     const f = worked > 0 ? Math.max(0, worked - lop / dim) : 0;
     const ots = oneTimes.filter((o) => o.month === month && o.amount);
-    // A payout after the last working day (e.g. F&F settled later) still belongs to this employer.
-    if (f === 0 && ots.length === 0) continue;
+    // A payout after the last working day (e.g. F&F settled later) still belongs to this employer;
+    // a month you were employed but not paid (all unpaid days) shows as ₹0.
+    if (f === 0 && ots.length === 0 && worked === 0) continue;
     const s = structureFor(emp, month);
     const basic = s.basic * f;
     const hra = s.hra * f;
     const special = (s.special - ctcNeutralPfCut(emp, s, month, rules)) * f;
     const others = s.others.reduce((a, o) => a + (o.amount || 0), 0) * f;
-    const epf = (epfFor(s, month, rules) + (s.vpf ?? 0)) * f;
+    const epf = epfFor(s, month, rules, f) + (s.vpf ?? 0) * f;
     const pt = ptFor(emp, s, month, basic + hra + special + others, fixedMonthly(s), f, rules, employed);
     const npsRaw = s.npsPct * basic;
     const nps = s.npsInGross ? npsRaw : 0;

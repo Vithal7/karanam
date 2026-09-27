@@ -225,6 +225,9 @@ const serviceYears = (e: Employment) => (e.start && e.end ? (Date.parse(e.end) -
 /** Leaving before 5 years with a gratuity rate in the CTC: is ex gratia paid in its place? */
 export const needsExGratia = (e: Employment, leaving: boolean) =>
   leaving &&
+  // Years of service need a real joining date: ask for it first.
+  e.startSource !== 'default' &&
+  e.startSource !== 'approx' &&
   !e.totalsOnly &&
   !!e.fnf &&
   e.fnf.gratuity === undefined &&
@@ -258,14 +261,16 @@ export function ExGratiaQuestion(props: { emp: Employment; fy: number; thirty: b
 
 /** The newest file with your salary at this job is from an earlier financial year. */
 export function staleSalary(e: Employment, fy: number, today: string): string | undefined {
-  if (e.totalsOnly || e.asked?.payChanged || e.revisions.length || !e.start || e.start > today) return undefined;
+  if (e.totalsOnly || e.asked?.payChanged || !e.start || e.start > today || e.startSource === 'default') return undefined;
   if (e.end && e.end < fyStart(fy)) return undefined;
-  const newest = e.docs
-    .filter((d) => d.kind === 'offer' || d.kind === 'appraisal' || d.kind === 'payslip')
-    .map((d) => d.docDate ?? d.doj ?? '')
-    .filter(Boolean)
-    .sort()
-    .pop();
+  // The latest thing we know about your pay: a letter, a payslip, your joining, or a hike.
+  const known = [
+    ...e.docs.filter((d) => d.kind === 'offer' || d.kind === 'appraisal' || d.kind === 'payslip').map((d) => d.docDate ?? d.doj ?? ''),
+    e.start,
+    ...e.revisions.map((r) => (r.from ? `${r.from}-01` : '')),
+  ].filter(Boolean);
+  if (!e.docs.length) return undefined;
+  const newest = known.sort().pop();
   return newest && newest < fyStart(fy) ? newest : undefined;
 }
 

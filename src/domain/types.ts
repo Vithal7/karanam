@@ -258,6 +258,8 @@ export interface DocRecord {
   employer?: string;
   /** The company was guessed from an email address, not named in the file: a hint only. */
   employerWeak?: boolean;
+  /** The company was typed in a note ("offer from Zeta"): may be a short form of the full name. */
+  employerTyped?: boolean;
   ytdTds?: number;
   facts?: Facts;
   /** The file's text, so it can be re-read if its type is corrected. */
@@ -303,6 +305,8 @@ export interface Employment {
   form12B: Form12B;
   /** You answered the Form 12B question (so it isn't asked again). */
   form12BConfirmed?: boolean;
+  /** Made only to hold files (not by you): removed when its files are gone. */
+  fromFiles?: boolean;
   /** You confirmed the leave balance at exit (0 days is a real answer then). */
   leaveConfirmed?: boolean;
   /** Unpaid days (loss of pay, unpaid leave, sabbatical) by month ("YYYY-MM" -> days). */

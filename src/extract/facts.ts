@@ -228,12 +228,11 @@ export function findProbationMonths(flat: string): number | undefined {
 const SUFFIX = /\b(private|pvt|limited|ltd|llp|inc|incorporated|corporation|corp|co|company|technologies|technology|tech|solutions|services|systems|software|labs|india|global|consulting|group)\b\.?/gi;
 
 /** "ACME Technologies Pvt. Ltd." and "Acme" both become "acme", for grouping files by company. */
-export const companyKey = (name?: string) =>
-  (name ?? '')
-    .toLowerCase()
-    .replace(SUFFIX, ' ')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+export const companyKey = (name?: string) => {
+  const words = (name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+  // Suffixes go, but never the first word: "Tech Mahindra" is not "Mahindra".
+  return words.filter((w, i) => i === 0 || !new RegExp(`^${SUFFIX.source}$`, 'i').test(w)).join(' ');
+};
 
 /** Company from an email address when the letter doesn't name one ("hr@sigma-systems.com"). */
 export function companyFromEmail(text: string): string | undefined {
@@ -241,6 +240,9 @@ export function companyFromEmail(text: string): string | undefined {
   if (!m) return undefined;
   const d = m[1].toLowerCase();
   if (/^(gmail|yahoo|outlook|hotmail|live|icloud|proton(mail)?|rediffmail|me)$/.test(d)) return undefined;
+  // HR software, job portals and recruiters send mail for other companies.
+  if (/^(keka|darwinbox|greythr|zoho|zohorecruit|naukri|linkedin|indeed|foundit|monster(india)?|workday|myworkday|successfactors|sapsf|hirist|instahyre|iimjobs|lever|greenhouse|smartrecruiters|icims|taleo|freshteam|peoplestrong|zimyo|qandle|hrone|sumhr|razorpay)$/.test(d)) return undefined;
+  if (/consult|recruit|staffing|placement|talent|careers?|jobs|hiring|manpower|hr(solutions|services)?$/.test(d)) return undefined;
   return d.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 

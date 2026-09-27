@@ -1,10 +1,12 @@
-import { monthName, monthOf } from '../domain/fy';
+import { monthLong, monthOf } from '../domain/fy';
 import type { Employment } from '../domain/types';
-import { fieldLabel, mergeDocs, type Choices } from '../extract/merge';
+import { baseDocs, fieldLabel, mergeDocs, type Choices } from '../extract/merge';
 import { rs } from '../format';
 import { Uploader, type ReadFile } from './Uploader';
 
-const when = (d?: string) => (d ? monthName(monthOf(d)) : 'no date found');
+const when = (d?: string) => (d ? monthLong(monthOf(d)) : 'no date found');
+
+const KIND: Record<string, string> = { offer: 'Offer', appraisal: 'Appraisal', payslip: 'Payslip', resignation: 'Resignation', fnf: 'F&F' };
 
 /** The files read for one job, plus a question for every figure they disagree on. */
 export function DocsPanel(props: {
@@ -15,7 +17,7 @@ export function DocsPanel(props: {
   onChoose: (field: string, choice: string) => void;
 }) {
   const { emp, choices } = props;
-  const { conflicts } = mergeDocs(emp.docs);
+  const { conflicts } = mergeDocs(baseDocs(emp.docs));
   return (
     <>
       <div class="card">
@@ -25,10 +27,10 @@ export function DocsPanel(props: {
           <ul class="files">
             {emp.docs.map((d) => (
               <li>
-                <span class="file-kind">{d.kind === 'payslip' ? 'Payslip' : 'Letter'}</span>
+                <span class="file-kind">{KIND[d.kind] ?? 'File'}</span>
                 <span class="file-name">
                   {d.name}
-                  <span class="muted small"> · {when(d.docDate)} · {Object.keys(d.fields).filter((f) => f !== 'joiningOffset').length} figures</span>
+                  <span class="muted small"> · {when(d.docDate)}</span>
                 </span>
                 <button type="button" class="btn icon" aria-label={`Remove ${d.name}`} onClick={() => props.onRemove(d.id)}>
                   ×

@@ -77,3 +77,9 @@ export const daysBetween = (start: string, end: string) =>
 
 export const maxDate = (a: string, b: string) => (a > b ? a : b);
 export const minDate = (a: string, b: string) => (a < b ? a : b);
+
+/** "Apr 2026": unambiguous month for sentences ("Apr 26" could read as a date). */
+export const monthLong = (key: string) => {
+  const { y } = parseDate(key);
+  return `${monthName(key, false)} ${y}`;
+};

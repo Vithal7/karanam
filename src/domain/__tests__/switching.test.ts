@@ -1,0 +1,98 @@
+import { describe, expect, it } from 'vitest';
+import { buyoutAmount, compute, fnfItems } from '../compute';
+import { structureFor } from '../schedule';
+import type { Employment, Scenario, Structure } from '../types';
+
+const st = (basic: number): Structure => ({ basic, hra: basic / 2, special: basic / 2, others: [], epfMode: 'fixed', epf: 1800, pt: 200, npsPct: 0, npsInGross: false });
+
+const job = (id: string, start: string, end: string, basic: number, extra: Partial<Employment> = {}): Employment => ({
+  id,
+  name: id,
+  start,
+  end,
+  structure: st(basic),
+  revisions: [],
+  oneTimes: [],
+  recoveries: [],
+  ctc: 0,
+  tdsKnown: {},
+  form12B: 'first',
+  docs: [],
+  ...extra,
+});
+
+describe('hike with arrears', () => {
+  // Hike effective April, first paid in July: April-June difference paid as arrears in July.
+  const s: Scenario = {
+    fy: 2026,
+    today: '2026-04-01',
+    settings: { thirtyDayMonth: false, nextFyHike: 0 },
+    employers: [job('S', '2024-03-01', '', 60000, { revisions: [{ from: '2026-04', payoutMonth: '2026-07', structure: st(72000) }] })],
+  };
+  const r = compute(s);
+  const lines = r.employers[0].lines;
+  it('pays the old salary until the payout month', () => {
+    expect(lines[0].basic).toBe(60000);
+    expect(lines[3].basic).toBe(72000);
+    expect(structureFor(s.employers[0], '2026-06').basic).toBe(60000);
+  });
+  it('pays arrears for the months in between', () => {
+    const arrears = lines[3].oneTimes.find((o) => /Arrears/.test(o.label))!;
+    expect(arrears.amount).toBe(3 * (144000 - 120000));
+    expect(arrears.label).toContain('Apr');
+  });
+});
+
+describe('F&F options', () => {
+  const base = job('S', '2025-01-01', '2026-11-11', 82080, { fnf: { leaveDays: 22, noticeDaysRecovered: 21, clawback: 50000, penalty: 10000, gratuity: 0 } });
+  it('leave encashment rate choices', () => {
+    expect(fnfItems(base, 2026)!.leaveEncashment).toBe(60192);
+    expect(fnfItems({ ...base, fnf: { ...base.fnf!, leaveBasis: 'basic26' } }, 2026)!.leaveEncashment).toBe(Math.round((82080 / 26) * 22));
+    expect(fnfItems({ ...base, fnf: { ...base.fnf!, leaveBasis: 'gross30' } }, 2026)!.leaveEncashment).toBe(Math.round((164160 / 30) * 22));
+    expect(fnfItems({ ...base, fnf: { ...base.fnf!, leaveBasis: 'custom', leaveRate: 3000 } }, 2026)!.leaveEncashment).toBe(66000);
+    expect(fnfItems(base, 2026)!.leaveRateLabel).toBe('basic ₹82,080 ÷ 30');
+  });
+  it('F&F slip amounts win over the calculation', () => {
+    const f = fnfItems({ ...base, fnf: { ...base.fnf!, leaveAmount: 59000, noticeAmount: 50000 } }, 2026)!;
+    expect(f.leaveEncashment).toBe(59000);
+    expect(f.noticeRecovery).toBe(50000);
+    expect(f.leaveFromSlip).toBe(true);
+  });
+  it('notice recovery on basic or gross', () => {
+    expect(fnfItems(base, 2026)!.noticeRecovery).toBe(57456);
+    expect(fnfItems({ ...base, fnf: { ...base.fnf!, noticeBasis: 'gross' } }, 2026)!.noticeRecovery).toBe(Math.round((164160 / 30) * 21));
+  });
+  it('pro-rata last month', () => {
+    expect(fnfItems(base, 2026)!.lastMonthFactor).toBeCloseTo(11 / 30, 6);
+  });
+});
+
+describe('moving jobs', () => {
+  const S = job('S', '2025-01-01', '2026-11-11', 82080, {
+    fnf: { leaveDays: 22, noticeDaysRecovered: 21, clawback: 50000, penalty: 10000, gratuity: 300000, payMonth: '2026-12' },
+  });
+  const A = job('A', '2026-11-12', '', 142500, { form12B: 'second', buyout: { mode: 'cap', cap: 100000, includesClawback: true } });
+  const s: Scenario = { fy: 2026, today: '2026-04-01', settings: { thirtyDayMonth: true, nextFyHike: 0 }, employers: [S, A] };
+  const r = compute(s);
+
+  it('caps the buyout', () => {
+    const f = fnfItems(S, 2026)!;
+    expect(buyoutAmount(f, A, S)).toEqual({ amount: 100000, claimed: 57456 + 50000 });
+    expect(buyoutAmount(f, { ...A, buyout: { mode: 'actuals' } }, S).amount).toBe(57456);
+    expect(buyoutAmount(f, { ...A, buyout: { mode: 'none' } }, S).amount).toBe(0);
+    const paid = r.employers[1].lines.flatMap((l) => l.oneTimes).find((o) => o.kind === 'buyout')!;
+    expect(paid.amount).toBe(100000);
+  });
+
+  it('pays F&F in its own month, after the last salary', () => {
+    const dec = r.employers[0].lines.find((l) => l.month === '2026-12')!;
+    expect(dec.factor).toBe(0);
+    expect(dec.oneTimes.map((o) => o.label)).toEqual(['Leave encashment', 'Gratuity']);
+    expect(dec.recoveries).toBe(57456 + 50000 + 10000);
+  });
+
+  it('keeps gratuity out of taxable income', () => {
+    const grossWithGratuity = r.employers.flatMap((e) => e.lines).reduce((a, l) => a + l.gross, 0);
+    expect(r.filing.gross).toBeCloseTo(grossWithGratuity - 300000, 6);
+  });
+});

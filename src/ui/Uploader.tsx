@@ -4,6 +4,7 @@ import { ACCEPT, fileToText } from '../extract/text';
 
 export interface ReadFile {
   name: string;
+  text: string;
   x: Extracted;
 }
 
@@ -23,15 +24,15 @@ export function Uploader(props: {
   const [pasted, setPasted] = useState('');
 
   function readPasted() {
-    const x = parseText(pasted);
-    if (!Object.keys(x.components).length && !x.doj) {
-      setErrors(["Couldn't find any salary figures in that text. Check you copied the salary table, or type the numbers in."]);
+    if (pasted.trim().length < 40) {
+      setErrors(['That looks too short. Paste the whole letter or email.']);
       return;
     }
+    const x = parseText(pasted);
     setErrors([]);
     setPasting(false);
     setPasted('');
-    props.onFiles([{ name: 'Pasted text', x }]);
+    props.onFiles([{ name: 'Pasted text', text: pasted, x }]);
   }
 
   async function handle(list: FileList | null | undefined) {
@@ -44,7 +45,7 @@ export function Uploader(props: {
       setBusy({ status: 'Opening', p: 0, file: file.name, i: i + 1, n: files.length });
       try {
         const { text } = await fileToText(file, (status, p) => setBusy({ status: humanStatus(status), p, file: file.name, i: i + 1, n: files.length }));
-        read.push({ name: file.name, x: parseText(text) });
+        read.push({ name: file.name, text, x: parseText(text) });
       } catch (e) {
         console.error(e);
         errs.push(`${file.name}: ${e instanceof Error ? e.message : 'could not read this file.'}`);
@@ -97,7 +98,11 @@ export function Uploader(props: {
               {props.buttonLabel ?? 'Choose files or take a photo'}
               <input ref={input} class="visually-hidden" type="file" accept={ACCEPT} multiple onChange={(e) => handle((e.target as HTMLInputElement).files)} />
             </label>
-            {!props.compact && <p class="muted small">Offer letter, revision letters or payslips. PDF, Word or photos. You can pick several at once. They're read on your device and never uploaded.</p>}
+            {!props.compact && (
+              <p class="muted small">
+                Select several at once: offer letters (old and new), appraisal letters, payslips, your resignation email, the F&F slip. PDF, Word or photos. They're read on this device and never uploaded.
+              </p>
+            )}
           </>
         )}
       </div>

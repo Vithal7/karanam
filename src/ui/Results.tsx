@@ -4,6 +4,8 @@ import { fyLabel, monthName } from '../domain/fy';
 import type { MonthLine, Scenario } from '../domain/types';
 import { pct, rs } from '../format';
 import { CashflowChart } from './Chart';
+import { ItrSection } from './Itr';
+import type { StoryJob } from '../domain/story';
 import { Field, Percent, Toggle } from './controls';
 
 function Stat(props: { label: string; value: string; sub?: string; tone?: 'good' | 'bad' }) {
@@ -158,74 +160,6 @@ function WhyLess({ s, r }: { s: Scenario; r: Result }) {
   );
 }
 
-function TaxPosition({ r, s }: { r: Result; s: Scenario }) {
-  const f = r.filing;
-  const refund = f.balance < 0;
-  const offer = lastOf(r.employers);
-  const earlier = s.employers.length > 1;
-  return (
-    <div class="card">
-      <h3>Your tax for {fyLabel(r.fy)}</h3>
-      <dl class="kv">
-        <dt>Total taxable salary</dt>
-        <dd class="num">{rs(f.gross)}</dd>
-        <dt>− Standard deduction</dt>
-        <dd class="num">{rs(f.standardDeduction)}</dd>
-        {f.npsDeduction > 0 && (
-          <>
-            <dt>− Employer NPS, 80CCD(2)</dt>
-            <dd class="num">{rs(f.npsDeduction)}</dd>
-          </>
-        )}
-        {f.leaveExemption > 0 && (
-          <>
-            <dt>− Leave encashment, 10(10AA)</dt>
-            <dd class="num">{rs(f.leaveExemption)}</dd>
-          </>
-        )}
-        <dt class="strong">Taxable income</dt>
-        <dd class="num strong">{rs(f.taxable)}</dd>
-        <dt>Tax on slabs</dt>
-        <dd class="num">{rs(f.slabTax)}</dd>
-        {f.rebate > 0 && (
-          <>
-            <dt>− Rebate u/s 87A</dt>
-            <dd class="num">{rs(f.rebate)}</dd>
-          </>
-        )}
-        {f.surcharge > 0 && (
-          <>
-            <dt>+ Surcharge</dt>
-            <dd class="num">{rs(f.surcharge)}</dd>
-          </>
-        )}
-        <dt>+ Cess 4%</dt>
-        <dd class="num">{rs(f.cess)}</dd>
-        <dt class="strong">Tax for the year</dt>
-        <dd class="num strong">{rs(f.total)}</dd>
-        <dt>− TDS by employers</dt>
-        <dd class="num">{rs(f.tdsTotal)}</dd>
-        <dt class="strong">{refund ? 'Refund when you file' : 'To pay when you file'}</dt>
-        <dd class={`num strong ${refund ? 'good' : f.balance > 1000 ? 'bad' : ''}`}>{rs(Math.abs(f.balance))}</dd>
-      </dl>
-      {earlier && offer.form12B && (
-        <p class="note">
-          Give {offer.name || 'your new employer'} <strong>Form 12B</strong> (your earlier salary and TDS this year) so it can deduct tax correctly. We assumed they have it
-          by {monthName(offer.form12B)}.
-        </p>
-      )}
-      {r.employers.slice(1).some((e) => !e.form12B) && f.balance > 1000 && (
-        <p class="note">Without Form 12B an employer taxes you as if you earned nothing earlier this year. That's why there is tax left to pay at filing.</p>
-      )}
-      {f.balance > 10000 && (
-        <p class="note">
-          If more than ₹10,000 is still due, advance tax applies. Pay it before 15 March, or ask your employer to deduct more TDS, to avoid interest under 234B/234C.
-        </p>
-      )}
-    </div>
-  );
-}
-
 function NextFy({ r, s, onHike }: { r: Result; s: Scenario; onHike: (v: number) => void }) {
   const n = r.nextFy;
   const monthly = n.lines.filter((l) => !l.oneTimes.length);
@@ -294,6 +228,7 @@ export function downloadCsv(r: Result) {
 export function Results(props: {
   r: Result;
   s: Scenario;
+  story: StoryJob[];
   showNextFy: boolean;
   setShowNextFy: (v: boolean) => void;
   onHike: (v: number) => void;
@@ -321,6 +256,22 @@ export function Results(props: {
         />
       </div>
 
+      {props.story.length > 0 && (
+        <details class="card story-short">
+          <summary>Your year in short</summary>
+          {props.story.map((j) => (
+            <div>
+              <strong>{j.name}</strong>
+              <ul class="story">
+                {j.lines.map((l) => (
+                  <li class={l.tone ?? ''}>{l.text}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </details>
+      )}
+
       <CashflowChart months={r.months} names={s.employers.map((e) => e.name)} />
       <MonthTable r={r} />
       {r.employers.some((e) => e.totalsOnly) && (
@@ -335,7 +286,7 @@ export function Results(props: {
       <p class="muted small">Tap a month for the details. Faded months are already paid. Estimated TDS follows how payroll spreads tax over the months left in the year.</p>
 
       <WhyLess s={s} r={r} />
-      <TaxPosition r={r} s={s} />
+      <ItrSection r={r} />
 
       {stage.length > 0 && (
         <div class="card">

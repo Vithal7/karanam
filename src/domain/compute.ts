@@ -1,7 +1,8 @@
 import { bundledRules, rulesFor, type Rules, type TaxYearRules } from '../rules';
-import { addMonths, fyEnd, fyMonths, monthOf } from './fy';
+import { addMonths, fyEnd, fyMonths, monthFactor, monthOf } from './fy';
 import { projectNextFy, type NextFyResult } from './nextFy';
 import {
+  arrearsFor,
   buildLines,
   endMonthOf,
   epfFor,
@@ -19,25 +20,80 @@ import type { Employment, MonthLine, OneTime, Recovery, Scenario, Structure, Tax
 export const MAX_EMPLOYERS = 3;
 
 export interface FnFItems {
+  /** Leave encashment rate per day, and how it was worked out. */
   perDay: number;
+  leaveRateLabel: string;
+  noticePerDay: number;
+  noticeRateLabel: string;
   leaveEncashment: number;
+  /** true when the amount came from the F&F slip rather than days × rate. */
+  leaveFromSlip: boolean;
   noticeRecovery: number;
+  noticeFromSlip: boolean;
   clawback: number;
+  penalty: number;
+  gratuity: number;
+  /** Month the F&F is paid. */
   month: string;
+  /** Month of the last working day (pro-rata salary). */
+  lastMonth: string;
+  lastMonthFactor: number;
 }
 
-/** Full & final settlement: per-day rate is the last month's full basic / 30. */
-export function fnfItems(emp: Employment, fy: number): FnFItems | null {
+/** Gratuity exemption limit under s.10(10)(iii). */
+export const GRATUITY_EXEMPT_CAP = 2_000_000;
+
+/**
+ * Full & final settlement. Leave is encashed at a per-day rate the user picks (basic ÷ 30 by
+ * default, as most payrolls do); notice shortfall is recovered at basic ÷ 30 or gross ÷ 30.
+ * Amounts printed on the F&F slip win over the calculation.
+ */
+export function fnfItems(emp: Employment, fy: number, thirty = false): FnFItems | null {
   if (!emp.fnf || emp.totalsOnly) return null;
-  const month = endMonthOf(emp, fy);
-  const perDay = structureFor(emp, month).basic / 30;
+  const f = emp.fnf;
+  const lastMonth = endMonthOf(emp, fy);
+  const st = structureFor(emp, lastMonth);
+  const gross = fixedMonthly(st);
+  const basis = f.leaveBasis ?? 'basic30';
+  const perDay =
+    basis === 'custom' ? f.leaveRate || 0 : basis === 'basic26' ? st.basic / 26 : basis === 'gross30' ? gross / 30 : st.basic / 30;
+  const leaveRateLabel =
+    basis === 'custom'
+      ? 'your rate'
+      : basis === 'basic26'
+        ? `basic ${inr(st.basic)} ÷ 26`
+        : basis === 'gross30'
+          ? `fixed gross ${inr(gross)} ÷ 30`
+          : `basic ${inr(st.basic)} ÷ 30`;
+  const noticePerDay = (f.noticeBasis === 'gross' ? gross : st.basic) / 30;
+  const w = window(emp, fy);
   return {
     perDay,
-    leaveEncashment: Math.round(perDay * (emp.fnf.leaveDays || 0)),
-    noticeRecovery: Math.round(perDay * (emp.fnf.noticeDaysRecovered || 0)),
-    clawback: emp.fnf.clawback || 0,
-    month,
+    leaveRateLabel,
+    noticePerDay,
+    noticeRateLabel: `${f.noticeBasis === 'gross' ? `fixed gross ${inr(gross)}` : `basic ${inr(st.basic)}`} ÷ 30`,
+    leaveEncashment: f.leaveAmount ?? Math.round(perDay * (f.leaveDays || 0)),
+    leaveFromSlip: f.leaveAmount !== undefined,
+    noticeRecovery: f.noticeAmount ?? Math.round(noticePerDay * (f.noticeDaysRecovered || 0)),
+    noticeFromSlip: f.noticeAmount !== undefined,
+    clawback: f.clawback || 0,
+    penalty: f.penalty || 0,
+    gratuity: f.gratuity || 0,
+    month: f.payMonth || lastMonth,
+    lastMonth,
+    lastMonthFactor: w ? monthFactor(lastMonth, w.start, w.end, thirty) : 0,
   };
+}
+
+const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+
+/** What the next job reimburses: notice recovery (and clawback if covered), up to any cap. */
+export function buyoutAmount(prev: FnFItems | null, next: Employment, prevEmp?: Employment): { amount: number; claimed: number } {
+  const mode = next.buyout?.mode ?? (prevEmp?.fnf?.buyoutByNext ? 'actuals' : 'none');
+  if (!prev || mode === 'none') return { amount: 0, claimed: 0 };
+  const claimed = prev.noticeRecovery + (next.buyout?.includesClawback || (!next.buyout && prevEmp?.fnf?.buyoutByNext) ? prev.clawback : 0);
+  const amount = mode === 'cap' && next.buyout?.cap ? Math.min(claimed, next.buyout.cap) : claimed;
+  return { amount, claimed };
 }
 
 /** Month from which employer k knows about earlier jobs' salary and TDS (Form 12B). */
@@ -134,39 +190,47 @@ export function compute(s: Scenario, rules: Rules = bundledRules): Result {
   const t = rulesFor(rules, s.fy);
   const thirty = s.settings.thirtyDayMonth;
   const out: EmployerResult[] = [];
-  let buyoutFromPrev = 0;
+  let prevFnf: FnFItems | null = null;
 
   s.employers.forEach((emp, k) => {
     const f12 = form12BMonth(s, k);
     if (emp.totalsOnly) {
       out.push({ name: emp.name, lines: [], stage: [], fnf: null, form12B: f12, totalsOnly: emp.totalsOnly });
-      buyoutFromPrev = 0;
+      prevFnf = null;
       return;
     }
-    const fnf = k < s.employers.length - 1 || emp.end ? fnfItems(emp, s.fy) : null;
+    const fnf = k < s.employers.length - 1 || emp.end ? fnfItems(emp, s.fy, thirty) : null;
     const extraOt: OneTime[] = [];
     const extraRec: Recovery[] = [];
     if (fnf) {
       if (fnf.leaveEncashment)
         extraOt.push({ id: 'fnf-leave', label: 'Leave encashment', kind: 'leaveEncashment', amount: fnf.leaveEncashment, month: fnf.month, taxable: true });
       if (fnf.noticeRecovery) extraRec.push({ id: 'fnf-notice', label: 'Notice recovery', amount: fnf.noticeRecovery, month: fnf.month });
-      if (fnf.clawback) extraRec.push({ id: 'fnf-clawback', label: 'Clawback', amount: fnf.clawback, month: fnf.month });
+      if (fnf.clawback) extraRec.push({ id: 'fnf-clawback', label: 'Bonus clawback', amount: fnf.clawback, month: fnf.month });
+      if (fnf.penalty) extraRec.push({ id: 'fnf-penalty', label: 'Penalty / bond recovery', amount: fnf.penalty, month: fnf.month });
+      if (fnf.gratuity) {
+        const exempt = Math.min(fnf.gratuity, GRATUITY_EXEMPT_CAP);
+        extraOt.push({ id: 'fnf-gratuity', label: 'Gratuity', kind: 'other', amount: exempt, month: fnf.month, taxable: false });
+        if (fnf.gratuity > exempt)
+          extraOt.push({ id: 'fnf-gratuity-tax', label: 'Gratuity above ₹20 lakh', kind: 'other', amount: fnf.gratuity - exempt, month: fnf.month, taxable: true });
+      }
     }
-    if (buyoutFromPrev > 0) {
+    const bo = k > 0 ? buyoutAmount(prevFnf, emp, s.employers[k - 1]) : { amount: 0, claimed: 0 };
+    if (bo.amount > 0) {
       extraOt.push({
         id: 'buyout',
         label: 'Notice buyout reimbursed',
         kind: 'buyout',
-        amount: buyoutFromPrev,
-        month: f12 ?? monthOf(window(emp, s.fy)?.start ?? emp.start),
+        amount: bo.amount,
+        month: emp.buyout?.month || f12 || monthOf(window(emp, s.fy)?.start ?? emp.start),
         taxable: true,
       });
     }
-    buyoutFromPrev = fnf && emp.fnf?.buyoutByNext ? fnf.noticeRecovery + fnf.clawback : 0;
+    prevFnf = fnf;
 
     const e = withExtras(emp, extraOt, extraRec);
     const v = variableAsOneTime(e);
-    const lines = buildLines(e, k, s.fy, thirty, [...e.oneTimes, ...(v ? [v] : [])], rules, t);
+    const lines = buildLines(e, k, s.fy, thirty, [...e.oneTimes, ...arrearsFor(e, thirty), ...(v ? [v] : [])], rules, t);
 
     // Everything earned at earlier jobs this FY, which this payroll learns from Form 12B.
     const earlier = out;

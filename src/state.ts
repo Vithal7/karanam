@@ -1,15 +1,15 @@
 import { MAX_EMPLOYERS } from './domain/compute';
 import { addMonths, fyEnd, fyOf, fyStart, maxDate, monthOf } from './domain/fy';
-import type { Employment, Scenario, Structure } from './domain/types';
+import type { DocRecord, Employment, Scenario, Structure } from './domain/types';
 import type { Choices, Mark } from './extract/merge';
 import { uid } from './format';
 
-export type StepId = 'offer-upload' | 'offer-review' | 'jobs' | 'job-edit' | 'extras' | 'results';
+export type StepId = 'upload' | 'story' | 'job-edit' | 'extras' | 'results';
 
 export type FieldMarks = Partial<Record<string, Mark>>;
 
 export interface AppState {
-  v: 2;
+  v: 3;
   step: StepId;
   history: StepId[];
   scenario: Scenario;
@@ -20,6 +20,10 @@ export interface AppState {
   marks: Record<string, FieldMarks>;
   sources: Record<string, Record<string, string>>;
   warnings: Record<string, string[]>;
+  /** Per job: how its files were read (assumptions, stale letters). */
+  notes: Record<string, string[]>;
+  /** Files whose company we couldn't tell; the user picks the job. */
+  inbox: DocRecord[];
   /** Per job: total TDS deducted so far this FY (from the latest payslip). */
   tdsSoFar: Record<string, number | null>;
   showNextFy: boolean;
@@ -60,8 +64,8 @@ export const emptyEmployment = (name: string, start: string): Employment => ({
 export function initialState(): AppState {
   const today = todayISO();
   return {
-    v: 2,
-    step: 'offer-upload',
+    v: 3,
+    step: 'upload',
     history: [],
     scenario: {
       fy: fyOf(today),
@@ -74,6 +78,8 @@ export function initialState(): AppState {
     marks: {},
     sources: {},
     warnings: {},
+    notes: {},
+    inbox: [],
     tdsSoFar: {},
     showNextFy: false,
   };
@@ -101,7 +107,7 @@ export function newEarlierJob(s: Scenario): Employment {
   const first = s.employers[0];
   const e = emptyEmployment(`Job ${s.employers.length}`, fyStart(s.fy));
   e.end = first.start > fyStart(s.fy) ? dayBefore(first.start) : '';
-  e.fnf = { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0, buyoutByNext: false };
+  e.fnf = { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 };
   return e;
 }
 
@@ -164,10 +170,13 @@ export const clearSaved = () => {
   }
 };
 
-/** v1 kept one current job + one offer and a numeric PF; lift it into the v2 shape. */
+const V2_STEPS: Record<string, StepId> = { 'offer-upload': 'upload', 'offer-review': 'story', jobs: 'story', 'job-edit': 'job-edit', extras: 'extras', results: 'results' };
+
+/** Saved state from older versions: v1 (one current job + offer), v2 (up to 3 jobs). */
 export function migrate(x: any): AppState | null {
   if (!x || typeof x !== 'object') return null;
-  if (x.v === 2) return x as AppState;
+  if (x.v === 3) return x as AppState;
+  if (x.v === 2) return { ...x, v: 3, step: V2_STEPS[x.step] ?? 'story', notes: {}, inbox: [] } as AppState;
   const s = x.scenario;
   if (!s?.next) return null;
   const up = (e: any, fnf?: any): Employment => ({
@@ -178,17 +187,19 @@ export function migrate(x: any): AppState | null {
     revisions: (e.revisions ?? []).map((r: any) => ({ ...r, structure: { ...r.structure, epfMode: 'fixed' } })),
     form12B: s.settings?.form12B ?? 'second',
     docs: [],
-    fnf: fnf ? { ...fnf, buyoutByNext: !!fnf.buyoutByNew } : undefined,
+    fnf: fnf ? { ...fnf } : undefined,
   });
   const employers: Employment[] = [];
   if (x.status === 'current' && s.current) employers.push(up(s.current, s.fnf));
   if (x.status === 'prior' && s.prior) employers.push({ ...emptyEmployment('Earlier job', fyStart(s.fy)), totalsOnly: s.prior });
-  employers.push(up(s.next));
+  const next = up(s.next);
+  if (s.fnf?.buyoutByNew) next.buyout = { mode: 'actuals', includesClawback: true };
+  employers.push(next);
   const st = initialState();
   const prevId = employers.length > 1 ? employers[0].id : null;
   return {
     ...st,
-    step: x.step === 'results' ? 'results' : 'offer-review',
+    step: x.step === 'results' ? 'results' : 'story',
     scenario: { fy: s.fy, today: st.scenario.today, employers, settings: { thirtyDayMonth: !!s.settings?.thirtyDayMonth, nextFyHike: s.settings?.nextFyHike ?? 0.1 } },
     tdsSoFar: prevId ? { [prevId]: x.tdsSoFar ?? null } : {},
   };

@@ -73,6 +73,16 @@ export function orderDocs(docs: DocRecord[]) {
     .map((x) => x.d);
 }
 
+/**
+ * Files that describe the starting salary: offer letters, and payslips from before the first
+ * appraisal. Later payslips and appraisal letters become dated hikes instead (see events.ts).
+ */
+export function baseDocs(docs: DocRecord[]): DocRecord[] {
+  const hikes = docs.filter((d) => d.kind === 'appraisal').map((d) => (d.facts?.effectiveFrom ?? d.docDate ?? '').slice(0, 7)).filter(Boolean).sort();
+  const first = hikes[0];
+  return docs.filter((d) => d.kind === 'offer' || (d.kind === 'payslip' && (!first || !d.docDate || d.docDate.slice(0, 7) < first)));
+}
+
 export function mergeDocs(docs: DocRecord[]) {
   const ordered = orderDocs(docs);
   const fields = [...new Set(ordered.flatMap((d) => Object.keys(d.fields)))].filter((f) => f !== 'joiningOffset');
@@ -107,7 +117,7 @@ export function applyDocs(
   choices: Choices,
   rules: Rules,
 ): { emp: Employment; marks: Record<string, Mark>; sources: Record<string, string>; ytdTds?: { amount: number; asOf?: string } } {
-  const docs = emp.docs;
+  const docs = baseDocs(emp.docs);
   const { agreed, conflicts } = mergeDocs(docs);
   const base: Record<string, number> = {};
   const revised: Record<string, number> = {};
@@ -169,10 +179,12 @@ export function applyDocs(
 
   const firstMonth = monthOf(ordered[0]?.docDate ?? doj ?? emp.start);
   const structure = buildStructure(base, emp.structure, firstMonth);
+  // Revisions the user typed stay; ones derived from files are rebuilt each time.
+  const manual = emp.revisions.filter((r) => !r.source?.startsWith('doc:'));
   const revisions: Revision[] =
     Object.keys(revised).length && revisionMonth
-      ? [{ from: revisionMonth, structure: buildStructure({ ...base, ...revised }, structure, revisionMonth) }]
-      : emp.revisions;
+      ? [...manual, { from: revisionMonth, structure: buildStructure({ ...base, ...revised }, structure, revisionMonth), source: 'doc:files disagree' }]
+      : manual;
 
   const out: Employment = { ...emp, structure, revisions };
   if (name && (!emp.name || /^(new job|current job|job \d)$/i.test(emp.name))) out.name = name;
@@ -187,7 +199,9 @@ export function applyDocs(
     out.oneTimes = [...out.oneTimes, { id: 'retention', label: 'Retention bonus', kind: 'bonus', amount: base.retention, month: addMonths(monthOf(out.start), 12), taxable: true }];
   if (base.variable)
     out.variable = { annual: base.variable, payoutPct: out.variable?.payoutPct ?? 1, prorate: out.variable?.prorate ?? true, month: out.variable?.month || `${fyOf(out.start) + 1}-04` };
-  const ytd = [...ordered].reverse().find((d) => d.ytdTds !== undefined);
+  const ytd = orderDocs(emp.docs)
+    .reverse()
+    .find((d) => d.ytdTds !== undefined);
 
   for (const f of ['basic', 'hra', 'special', 'ctc']) marks[f] = base[f] !== undefined ? 'found' : 'missing';
   for (const f of ['epf', 'pt']) marks[f] = base[f] !== undefined ? 'found' : 'guessed';

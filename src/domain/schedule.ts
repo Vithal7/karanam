@@ -1,5 +1,5 @@
 import { epfCeiling, type Rules, type TaxYearRules } from '../rules';
-import { fyEnd, fyMonths, fyOf, fyStart, daysBetween, maxDate, minDate, monthFactor, monthOf } from './fy';
+import { addMonths, fyEnd, fyMonths, fyOf, fyStart, daysBetween, maxDate, minDate, monthFactor, monthName, monthOf } from './fy';
 import type { Employment, MonthLine, OneTime, Structure } from './types';
 
 export const fixedMonthly = (s: Structure) =>
@@ -12,12 +12,31 @@ export function epfFor(s: Structure, month: string, rules: Rules): number {
   return rules.epf.rate * Math.min(s.basic, epfCeiling(rules, month));
 }
 
-/** The structure in force in a given month, taking revisions into account. */
+/** The structure actually paid in a given month: a hike counts from the month it's first paid. */
 export function structureFor(emp: Employment, month: string): Structure {
   let s = emp.structure;
   const revs = [...emp.revisions].sort((a, b) => a.from.localeCompare(b.from));
-  for (const r of revs) if (r.from && r.from <= month) s = r.structure;
+  for (const r of revs) if (r.from && (r.payoutMonth && r.payoutMonth > r.from ? r.payoutMonth : r.from) <= month) s = r.structure;
   return s;
+}
+
+/**
+ * A hike effective before it is first paid comes as arrears in the payout month: the difference
+ * between the new and old fixed pay for each month in between (prorated for partial months).
+ */
+export function arrearsFor(emp: Employment, thirty: boolean): OneTime[] {
+  const out: OneTime[] = [];
+  for (const r of emp.revisions) {
+    if (!r.from || !r.payoutMonth || r.payoutMonth <= r.from) continue;
+    let total = 0;
+    for (let m = r.from; m < r.payoutMonth; m = addMonths(m, 1)) {
+      const f = monthFactor(m, emp.start || `${m}-01`, emp.end || '9999-12-31', thirty);
+      if (f > 0) total += (fixedMonthly(r.structure) - fixedMonthly(structureFor(emp, m))) * f;
+    }
+    if (total > 0.5)
+      out.push({ id: `arrears-${r.from}`, label: `Arrears for hike from ${monthName(r.from)}`, kind: 'bonus', amount: Math.round(total), month: r.payoutMonth, taxable: true });
+  }
+  return out;
 }
 
 /** The employment's working window clamped to the FY, or null if it does not overlap. */

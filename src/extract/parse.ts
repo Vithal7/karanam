@@ -93,8 +93,8 @@ const NICE: Record<ComponentKey, string> = {
   ctc: 'CTC',
 };
 
-const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-const MON_RE = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+export const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+export const MON_RE = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
 
 const DATE_PATTERNS: RegExp[] = [
   /\b(\d{4})-(\d{1,2})-(\d{1,2})\b/, // ISO
@@ -104,9 +104,9 @@ const DATE_PATTERNS: RegExp[] = [
 ];
 
 const pad = (n: number) => String(n).padStart(2, '0');
-const year4 = (y: number) => (y < 100 ? 2000 + y : y);
+export const year4 = (y: number) => (y < 100 ? 2000 + y : y);
 
-function validDate(y: number, m: number, d: number): string | undefined {
+export function validDate(y: number, m: number, d: number): string | undefined {
   if (m < 1 || m > 12 || d < 1 || d > 31 || y < 1990 || y > 2100) return undefined;
   return `${y}-${pad(m)}-${pad(d)}`;
 }
@@ -338,10 +338,12 @@ export function parseText(text: string): Extracted {
   }
 
   // Employer name: "<Name> Private Limited / Pvt Ltd / Limited / LLP / Inc".
+  // A company name is a run of capitalised words ending in a legal suffix ("Sigma Systems Pvt Ltd").
+  const NAME = "((?:[A-Z0-9][\\w&.'’-]*[ \\t]+){1,6}?)";
   const em =
-    text.match(/([A-Z][A-Za-z0-9&.' -]{1,60}?\s(?:Private\s+Limited|Pvt\.?\s*Ltd\.?|Limited|LLP|Inc\.?))/) ??
-    text.match(/([A-Z][A-Za-z0-9&.' -]{1,60}?\s(?:Technologies|Solutions|Systems|Services|Labs))\b/);
-  const employer = em?.[1].trim().replace(/^(for|from|at|with|of|by)\s+/i, '');
+    new RegExp(`${NAME}(Private[ \\t]+Limited|Pvt\\.?[ \\t]*Ltd\\.?|Limited|Ltd\\.?|LLP|Inc\\.?)`).exec(text) ??
+    new RegExp(`${NAME}(Technologies|Solutions|Systems|Services|Labs|Software)\\b`).exec(text);
+  const employer = em ? `${em[1]}${em[2]}`.trim().replace(/^(for|from|at|with|of|by|to|dear)\s+/i, '') : undefined;
 
   // Sanity check against CTC.
   if (ctc) {

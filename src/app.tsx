@@ -1,45 +1,73 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { compute } from './domain/compute';
-import { fyLabel, maxDate, monthOf } from './domain/fy';
-import type { Employment, Scenario } from './domain/types';
-import { applyDocs, docFromExtract, mergeDocs } from './extract/merge';
-import { uid } from './format';
+import { fyLabel, fyStart, maxDate, monthOf } from './domain/fy';
+import { buildStory } from './domain/story';
+import type { DocRecord, Employment } from './domain/types';
+import { applyEvents } from './extract/events';
+import { assignDocs, blankJob, docFromText, orderJobs } from './extract/intake';
+import { applyDocs, mergeDocs, baseDocs } from './extract/merge';
 import { type Rules } from './rules';
 import { activeRules, watchRules } from './rules/update';
 import {
   clearSaved,
   dayBefore,
-  earlierJobs,
   effectiveScenario,
   fyFor,
   initialState,
-  joinsMidYear,
   load,
-  newEarlierJob,
-  offerOf,
   save,
-  sortJobs,
   type AppState,
   type StepId,
 } from './state';
-import { DateInput, Field, Toggle, Warnings } from './ui/controls';
+import { Toggle } from './ui/controls';
 import { Continue } from './ui/Continue';
-import { DocsPanel } from './ui/Docs';
-import { OfferExtras, OneTimeEditor, StructureEditor } from './ui/Editors';
+import { OneTimeEditor } from './ui/Editors';
 import { Results, downloadCsv } from './ui/Results';
 import { RulesContext } from './ui/rulesContext';
 import { JobEditStep } from './ui/steps/JobEdit';
-import { JobsStep } from './ui/steps/Jobs';
+import { StoryStep } from './ui/steps/Story';
 import { Uploader, type ReadFile } from './ui/Uploader';
 
 const TITLES: Record<StepId, string> = {
-  'offer-upload': 'Your new offer letter',
-  'offer-review': 'Check what we found',
-  jobs: 'Jobs this financial year',
-  'job-edit': 'An earlier job',
+  upload: 'Your documents',
+  story: 'Your year so far',
+  'job-edit': 'Check the numbers',
   extras: 'Anything else?',
   results: 'Your money, month by month',
 };
+
+/** Rebuild the named jobs from their files, then keep the timeline consistent. */
+function rebuild(x: AppState, ids: Iterable<string>, rules: Rules): AppState {
+  const todo = new Set(ids);
+  const marks = { ...x.marks };
+  const sources = { ...x.sources };
+  const notes = { ...x.notes };
+  const tdsSoFar = { ...x.tdsSoFar };
+  let employers = x.scenario.employers.map((e) => {
+    if (!todo.has(e.id)) return e;
+    const a = applyDocs(e, x.choices[e.id] ?? {}, rules);
+    const ev = applyEvents(a.emp, rules, monthOf(fyStart(x.scenario.fy)));
+    marks[e.id] = a.marks;
+    sources[e.id] = a.sources;
+    notes[e.id] = ev.notes;
+    if (a.ytdTds && (tdsSoFar[e.id] === undefined || tdsSoFar[e.id] === null)) tdsSoFar[e.id] = a.ytdTds.amount;
+    return ev.emp;
+  });
+  employers = orderJobs(employers);
+  // Earlier jobs end the day before the next one starts unless a document says otherwise.
+  employers = employers.map((e, k) => {
+    const next = employers[k + 1];
+    if (!next) return e;
+    const out = { ...e };
+    if (!out.end && !out.totalsOnly && next.start) out.end = dayBefore(next.start);
+    if (!out.fnf && !out.totalsOnly) out.fnf = { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 };
+    return out;
+  });
+  const last = employers[employers.length - 1];
+  // The offer's own tdsSoFar never applies (its TDS is projected).
+  delete tdsSoFar[last.id];
+  return { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, last.start) }, marks, sources, notes, tdsSoFar };
+}
 
 export function App() {
   const [st, setSt] = useState<AppState>(() => load() ?? initialState());
@@ -57,77 +85,83 @@ export function App() {
   );
 
   const s = st.scenario;
-  const offer = offerOf(s);
   const update = (patch: Partial<AppState>) => setSt((x) => ({ ...x, ...patch }));
   const go = (step: StepId, editing: string | null = null) => setSt((x) => ({ ...x, step, editing, history: [...x.history, x.step] }));
-  const back = () =>
-    setSt((x) => (x.history.length ? { ...x, step: x.history[x.history.length - 1], history: x.history.slice(0, -1), editing: x.step === 'job-edit' ? null : x.editing } : x));
+  const back = () => setSt((x) => (x.history.length ? { ...x, step: x.history[x.history.length - 1], history: x.history.slice(0, -1), editing: null } : x));
 
-  /** Replace one job; the offer's joining date decides which FY we're looking at. */
   const setJob = (e: Employment) =>
     setSt((x) => {
       const employers = x.scenario.employers.map((j) => (j.id === e.id ? e : j));
-      const isOffer = employers[employers.length - 1].id === e.id;
-      const scenario: Scenario = { ...x.scenario, employers, fy: isOffer ? fyFor(x.scenario.today, e.start) : x.scenario.fy };
-      return { ...x, scenario };
+      const last = employers[employers.length - 1];
+      return { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, last.start) } };
     });
 
-  /** Re-merge a job's files after files or answers change. */
-  const remerge = (x: AppState, id: string, docsChanged: boolean): AppState => {
-    const emp = x.scenario.employers.find((j) => j.id === id)!;
-    const r = applyDocs(emp, x.choices[id] ?? {}, rules);
-    const employers = x.scenario.employers.map((j) => (j.id === id ? r.emp : j));
-    const isOffer = employers[employers.length - 1].id === id;
-    // An earlier job's letter can carry an old joining date: clamp it, and keep a sensible last day.
-    if (!isOffer) {
-      const e = employers.find((j) => j.id === id)!;
-      const offerStart = employers[employers.length - 1].start;
-      if (!e.end && offerStart) e.end = dayBefore(offerStart);
-    }
-    const tdsSoFar = { ...x.tdsSoFar };
-    if (!isOffer && docsChanged && r.ytdTds && (tdsSoFar[id] === undefined || tdsSoFar[id] === null)) tdsSoFar[id] = r.ytdTds.amount;
-    return {
-      ...x,
-      scenario: { ...x.scenario, employers, fy: isOffer ? fyFor(x.scenario.today, r.emp.start) : x.scenario.fy },
-      marks: { ...x.marks, [id]: r.marks },
-      sources: { ...x.sources, [id]: r.sources },
-      tdsSoFar,
-    };
-  };
-
-  const addFiles = (id: string, files: ReadFile[]) =>
+  /** New files: read them, sort them into jobs, rebuild those jobs. */
+  const ingest = (files: ReadFile[]) =>
     setSt((x) => {
-      const employers = x.scenario.employers.map((j) =>
-        j.id === id ? { ...j, docs: [...j.docs, ...files.map((f) => docFromExtract(f.x, uid(), f.name))] } : j,
-      );
-      const warnings = files.flatMap((f) => f.x.warnings.map((w) => (files.length > 1 ? `${f.name}: ${w}` : w)));
-      return remerge({ ...x, scenario: { ...x.scenario, employers }, warnings: { ...x.warnings, [id]: warnings } }, id, true);
+      const docs = files.map((f) => docFromText(f.text, f.name));
+      const { employers, unassigned, changed } = assignDocs(x.scenario.employers, docs, x.scenario.fy);
+      const warnings = { ...x.warnings };
+      for (const f of files) {
+        const d = docs.find((dd) => dd.name === f.name);
+        const job = employers.find((e) => e.docs.some((dd) => dd.id === d?.id));
+        if (job && d?.kind === 'offer') warnings[job.id] = [...(warnings[job.id] ?? []), ...f.x.warnings.map((w) => `${f.name}: ${w}`)];
+      }
+      return rebuild({ ...x, scenario: { ...x.scenario, employers }, inbox: [...x.inbox, ...unassigned], warnings }, changed, rules);
     });
+
+  const assign = (docId: string, target: string) =>
+    setSt((x) => {
+      const doc = x.inbox.find((d) => d.id === docId)!;
+      let employers = x.scenario.employers;
+      let id = target;
+      if (target === 'new') {
+        const j = blankJob(doc.employer || `Job ${employers.length + 1}`, fyStart(x.scenario.fy));
+        employers = [j, ...employers];
+        id = j.id;
+      }
+      employers = employers.map((e) => (e.id === id ? { ...e, docs: [...e.docs, doc] } : e));
+      return rebuild({ ...x, inbox: x.inbox.filter((d) => d.id !== docId), scenario: { ...x.scenario, employers } }, [id], rules);
+    });
+
   const removeDoc = (id: string, docId: string) =>
     setSt((x) => {
       const employers = x.scenario.employers.map((j) => (j.id === id ? { ...j, docs: j.docs.filter((d) => d.id !== docId) } : j));
-      return remerge({ ...x, scenario: { ...x.scenario, employers } }, id, true);
+      return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [id], rules);
     });
   const choose = (id: string, field: string, choice: string) =>
-    setSt((x) => remerge({ ...x, choices: { ...x.choices, [id]: { ...(x.choices[id] ?? {}), [field]: choice } } }, id, false));
-
+    setSt((x) => rebuild({ ...x, choices: { ...x.choices, [id]: { ...(x.choices[id] ?? {}), [field]: choice } } }, [id], rules));
+  const addFilesTo = (id: string, files: ReadFile[]) =>
+    setSt((x) => {
+      const docs: DocRecord[] = files.map((f) => docFromText(f.text, f.name));
+      const employers = x.scenario.employers.map((j) => (j.id === id ? { ...j, docs: [...j.docs, ...docs] } : j));
+      return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [id], rules);
+    });
   const addJob = () =>
     setSt((x) => {
-      const e = newEarlierJob(x.scenario);
-      const employers = sortJobs([e, ...x.scenario.employers]);
-      return { ...x, scenario: { ...x.scenario, employers }, step: 'job-edit', editing: e.id, history: [...x.history, x.step] };
+      const first = x.scenario.employers[0];
+      const j = blankJob(`Job ${x.scenario.employers.length + 1}`, fyStart(x.scenario.fy));
+      if (first.start > fyStart(x.scenario.fy)) j.end = dayBefore(first.start);
+      j.fnf = { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 };
+      return { ...x, scenario: { ...x.scenario, employers: [j, ...x.scenario.employers] }, step: 'job-edit', editing: j.id, history: [...x.history, x.step] };
     });
-  const removeJob = (id: string) => setSt((x) => ({ ...x, scenario: { ...x.scenario, employers: x.scenario.employers.filter((j) => j.id !== id) } }));
+  const removeJob = (id: string) =>
+    setSt((x) => {
+      const employers = x.scenario.employers.filter((j) => j.id !== id);
+      return employers.length ? rebuild({ ...x, scenario: { ...x.scenario, employers } }, [], rules) : x;
+    });
 
   const effective = useMemo(() => effectiveScenario(st), [st]);
-  const result = useMemo(() => (st.step === 'results' ? compute(effective, rules) : null), [effective, rules, st.step]);
+  const result = useMemo(() => (['story', 'results'].includes(st.step) && s.employers.length ? compute(effective, rules) : null), [effective, rules, st.step, s.employers.length]);
+  const story = useMemo(() => (result ? buildStory(effective, result) : []), [effective, result]);
 
-  const editing = st.step === 'job-edit' ? s.employers.find((j) => j.id === st.editing) : undefined;
-  const editingNext = editing ? s.employers[s.employers.indexOf(editing) + 1] : undefined;
-  const conflictsOpen = (id: string, e: Employment) => mergeDocs(e.docs).conflicts.some((c) => !(st.choices[id] ?? {})[c.field]);
+  const editIndex = st.step === 'job-edit' ? s.employers.findIndex((j) => j.id === st.editing) : -1;
+  const editing = editIndex >= 0 ? s.employers[editIndex] : undefined;
+  const openConflicts = (e: Employment) => mergeDocs(baseDocs(e.docs)).conflicts.filter((c) => !(st.choices[e.id] ?? {})[c.field]).length;
+  const offer = s.employers[s.employers.length - 1];
 
-  const steps: StepId[] = ['offer-upload', 'offer-review', 'jobs', 'extras', 'results'];
-  const progress = (Math.max(0, steps.indexOf(st.step === 'job-edit' ? 'jobs' : st.step)) + 1) / steps.length;
+  const steps: StepId[] = ['upload', 'story', 'extras', 'results'];
+  const progress = (Math.max(0, steps.indexOf(st.step === 'job-edit' ? 'story' : st.step)) + 1) / steps.length;
 
   return (
     <RulesContext.Provider value={rules}>
@@ -140,10 +174,10 @@ export function App() {
             </svg>
             <div>
               <div class="brand-name">In-hand</div>
-              <div class="brand-sub">What your offer really pays · {fyLabel(s.fy)}</div>
+              <div class="brand-sub">Your salary, bank account and ITR · {fyLabel(s.fy)}</div>
             </div>
           </div>
-          {st.step !== 'offer-upload' && (
+          {st.step !== 'upload' && (
             <StartOver
               onConfirm={() => {
                 clearSaved();
@@ -174,77 +208,78 @@ export function App() {
           )}
           <h1>{editing ? editing.name || TITLES['job-edit'] : TITLES[st.step]}</h1>
 
-          {st.step === 'offer-upload' && (
+          {st.step === 'upload' && (
             <>
               <p class="lead">
-                A ₹30 lakh CTC doesn't mean ₹2.5 lakh a month. Upload your offer letter and see what actually reaches your bank account each month until March, after PF,
-                tax and everything else.
+                A ₹30 lakh CTC doesn't mean ₹2.5 lakh a month. Add your documents and see what actually reaches your bank account each month, and what you'll pay or get
+                back when you file your ITR.
               </p>
+              <ul class="doc-list">
+                <li>
+                  <strong>New offer letter</strong> for the job you're joining
+                </li>
+                <li>
+                  <strong>Current job:</strong> offer letter (even an old one), appraisal letters, recent payslip
+                </li>
+                <li>
+                  <strong>Leaving?</strong> Resignation acceptance email, F&F slip
+                </li>
+              </ul>
               <Uploader
                 onFiles={(f) => {
-                  addFiles(offer.id, f);
-                  go('offer-review');
+                  ingest(f);
+                  go('story');
                 }}
-                onManual={() => go('offer-review')}
+                onManual={() => go('job-edit', offer.id)}
               />
-              <p class="muted small center">Works offline. Nothing you enter leaves this device.</p>
+              <p class="muted small center">Works offline. Nothing you add leaves this device.</p>
             </>
           )}
 
-          {st.step === 'offer-review' && (
-            <>
-              <p class="lead">Fix anything that looks off. Fields marked “check this” were our best guess.</p>
-              <DocsPanel emp={offer} choices={st.choices[offer.id] ?? {}} onAdd={(f) => addFiles(offer.id, f)} onRemove={(d) => removeDoc(offer.id, d)} onChoose={(f, c) => choose(offer.id, f, c)} />
-              <Warnings items={st.warnings[offer.id] ?? []} />
-              <div class="card">
-                <Field label="Company">
-                  <input id="offer-name" class="text" value={offer.name} onInput={(e) => setJob({ ...offer, name: (e.target as HTMLInputElement).value })} />
-                </Field>
-                <Field label="Date of joining" mark={st.marks[offer.id]?.start}>
-                  <DateInput value={offer.start} onChange={(v) => setJob({ ...offer, start: v })} ariaLabel="Date of joining" />
-                </Field>
-              </div>
-              <StructureEditor value={offer.structure} marks={st.marks[offer.id]} sources={st.sources[offer.id]} month={monthOf(offer.start || s.today)} onChange={(x) => setJob({ ...offer, structure: x })} />
-              <OfferExtras emp={offer} marks={st.marks[offer.id]} onChange={setJob} />
-              <Continue
-                disabled={!offer.structure.basic || !offer.start || conflictsOpen(offer.id, offer)}
-                why={conflictsOpen(offer.id, offer) ? 'Answer the questions about the files that disagree.' : 'Enter at least Basic and the joining date.'}
-                onClick={() => go(joinsMidYear(s) || earlierJobs(s).length ? 'jobs' : 'extras')}
-              />
-            </>
+          {st.step === 'story' && (
+            <StoryStep
+              s={s}
+              story={story}
+              notes={st.notes}
+              inbox={st.inbox}
+              onAssign={assign}
+              onDiscard={(id) => update({ inbox: st.inbox.filter((d) => d.id !== id) })}
+              onAddFiles={ingest}
+              onEdit={(id) => go('job-edit', id)}
+              onRemove={removeJob}
+              onAddJob={addJob}
+              onNext={() => go('extras')}
+            />
           )}
 
-          {st.step === 'jobs' && (
-            <JobsStep s={s} onAdd={addJob} onEdit={(id) => go('job-edit', id)} onRemove={removeJob} onEditOffer={() => go('offer-review')} onNext={() => go('extras')} />
-          )}
-
-          {st.step === 'job-edit' && editing && editingNext && (
+          {st.step === 'job-edit' && editing && (
             <JobEditStep
               s={s}
-              emp={editing}
-              next={editingNext}
+              index={editIndex}
               choices={st.choices[editing.id] ?? {}}
               marks={st.marks[editing.id] ?? {}}
               sources={st.sources[editing.id] ?? {}}
-              warnings={(st.warnings[editing.id] ?? []).filter((w) => !/date of joining/i.test(w))}
+              warnings={(st.warnings[editing.id] ?? []).filter((w) => editIndex === s.employers.length - 1 || !/date of joining/i.test(w))}
+              notes={st.notes[editing.id] ?? []}
               tdsSoFar={st.tdsSoFar[editing.id] ?? null}
               ytdHint={[...editing.docs].reverse().find((d) => d.ytdTds !== undefined)?.ytdTds}
               onChange={setJob}
-              onNextChange={setJob}
               onTdsSoFar={(v) => update({ tdsSoFar: { ...st.tdsSoFar, [editing.id]: v } })}
-              onAddFiles={(f) => addFiles(editing.id, f)}
+              onAddFiles={(f) => addFilesTo(editing.id, f)}
               onRemoveDoc={(d) => removeDoc(editing.id, d)}
               onChoose={(f, c) => choose(editing.id, f, c)}
               onDone={() => {
-                setSt((x) => ({ ...x, scenario: { ...x.scenario, employers: sortJobs(x.scenario.employers) } }));
-                back();
+                if (openConflicts(editing)) return;
+                setSt((x) => ({ ...x, scenario: { ...x.scenario, employers: orderJobs(x.scenario.employers) } }));
+                if (st.history[st.history.length - 1] === 'upload') go('story');
+                else back();
               }}
             />
           )}
 
           {st.step === 'extras' && (
             <>
-              <p class="lead">Add any other payments you expect from {offer.name || 'the new job'} before March 31, such as a relocation allowance, retention bonus or referral bonus.</p>
+              <p class="lead">Add any other payments you expect from {offer.name || 'your job'} before 31 March, such as a relocation allowance, retention bonus or referral bonus.</p>
               <div class="card">
                 <OneTimeEditor
                   items={offer.oneTimes.filter((o) => o.kind !== 'joining')}
@@ -269,19 +304,15 @@ export function App() {
               <Results
                 r={result}
                 s={effective}
+                story={story}
                 showNextFy={st.showNextFy}
                 setShowNextFy={(v) => update({ showNextFy: v })}
                 onHike={(v) => update({ scenario: { ...s, settings: { ...s.settings, nextFyHike: v } } })}
               />
               <div class="actions">
-                <button type="button" class="btn" onClick={() => go('offer-review')}>
-                  Edit offer
+                <button type="button" class="btn" onClick={() => go('story')}>
+                  Edit jobs and documents
                 </button>
-                {earlierJobs(s).length > 0 && (
-                  <button type="button" class="btn" onClick={() => go('jobs')}>
-                    Edit earlier jobs
-                  </button>
-                )}
                 <button type="button" class="btn" onClick={() => downloadCsv(result)}>
                   Download CSV
                 </button>

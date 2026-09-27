@@ -38,9 +38,20 @@ export interface Structure {
 }
 
 export interface Revision {
-  /** First month the new structure applies. */
+  /** First month the new salary applies to (the hike's effective month). */
   from: string;
+  /**
+   * Payroll month the new salary is first paid, when later than `from`. The difference for the
+   * months in between is paid then as arrears.
+   */
+  payoutMonth?: string;
   structure: Structure;
+  /** For the story view: revised CTC and hike %, and the file it came from. */
+  ctc?: number;
+  pct?: number;
+  source?: string;
+  /** true when the breakup was worked out by scaling the old one (letter gave only a total). */
+  scaled?: boolean;
 }
 
 export type OneTimeKind = 'joining' | 'variable' | 'bonus' | 'leaveEncashment' | 'buyout' | 'other';
@@ -53,6 +64,8 @@ export interface OneTime {
   month: string;
   /** false for exempt receipts (e.g. reimbursements); true for almost everything. */
   taxable: boolean;
+  /** Joining bonus: repayable if you leave within this many months. */
+  clawbackMonths?: number;
 }
 
 export interface VariablePay {
@@ -73,12 +86,64 @@ export interface Recovery {
   month: string;
 }
 
+/** Per-day rate used for leave encashment. */
+export type LeaveBasis = 'basic30' | 'basic26' | 'gross30' | 'custom';
+
 export interface FnF {
   leaveDays: number;
+  leaveBasis?: LeaveBasis;
+  /** Per-day rate when leaveBasis is 'custom'. */
+  leaveRate?: number;
+  /** Amount printed on the F&F slip; overrides the calculation. */
+  leaveAmount?: number;
   noticeDaysRecovered: number;
+  /** Notice recovery per day: basic / 30 or fixed gross / 30. */
+  noticeBasis?: 'basic' | 'gross';
+  /** Amount printed on the F&F slip; overrides the calculation. */
+  noticeAmount?: number;
+  /** Joining/relocation bonus repaid to this employer. */
   clawback: number;
-  /** The next employer reimburses notice recovery + clawback. */
-  buyoutByNext: boolean;
+  /** Bond or contract-breach penalty. */
+  penalty?: number;
+  /** Gratuity paid in F&F (5+ years of service). Exempt up to ₹20 lakh. */
+  gratuity?: number;
+  /** Month the F&F is paid; empty = with the last salary. */
+  payMonth?: string;
+  /** @deprecated v2: use the next job's `buyout`. */
+  buyoutByNext?: boolean;
+}
+
+/** What the next employer reimburses for leaving the previous one. */
+export interface Buyout {
+  mode: 'none' | 'actuals' | 'cap';
+  cap?: number;
+  /** Also covers a joining-bonus clawback, not just notice recovery. */
+  includesClawback?: boolean;
+  /** Month it's paid; empty = with the Form 12B month or the first salary. */
+  month?: string;
+}
+
+/** Dated facts read from a file, beyond salary components. */
+export interface Facts {
+  effectiveFrom?: string;
+  payoutMonth?: string;
+  incrementPct?: number;
+  revisedCtc?: number;
+  oldCtc?: number;
+  lastWorkingDay?: string;
+  resignationDate?: string;
+  noticeDays?: number;
+  shortfallDays?: number;
+  leaveDays?: number;
+  leaveAmount?: number;
+  noticeRecoveryAmount?: number;
+  gratuity?: number;
+  netPayable?: number;
+  fnfPayMonth?: string;
+  clawback?: number;
+  penalty?: number;
+  buyout?: { mode: 'actuals' | 'cap'; cap?: number };
+  joiningClawbackMonths?: number;
 }
 
 /** When the employer gets Form 12B (earlier salary + TDS) relative to the joining month. */
@@ -88,7 +153,7 @@ export type Form12B = 'first' | 'second' | 'never';
 export interface DocRecord {
   id: string;
   name: string;
-  kind: 'offer' | 'payslip';
+  kind: 'offer' | 'appraisal' | 'payslip' | 'resignation' | 'fnf';
   /** Letter date or payslip month (YYYY-MM-DD), if found. */
   docDate?: string;
   /** Monthly component values keyed by field (basic, hra, special, epf, pt, ctc, ...). */
@@ -96,6 +161,7 @@ export interface DocRecord {
   doj?: string;
   employer?: string;
   ytdTds?: number;
+  facts?: Facts;
 }
 
 export interface Employment {
@@ -121,6 +187,10 @@ export interface Employment {
   fnf?: FnF;
   /** For every job after the first: when it learns about the earlier ones. */
   form12B: Form12B;
+  /** For every job after the first: notice buyout it reimburses. */
+  buyout?: Buyout;
+  /** Resignation date, for the story view. */
+  resignedOn?: string;
   docs: DocRecord[];
   /** "I only know the totals": no monthly detail, just gross earned and TDS this FY. */
   totalsOnly?: { gross: number; tds: number };

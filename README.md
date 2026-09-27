@@ -10,18 +10,27 @@ that workbook's figures exactly (`src/domain/__tests__/workbook.test.ts`).
 
 ## What it does
 
-1. **Reads your offer letter** (PDF, Word or a photo) and fills in Basic, HRA, special allowance,
-   PF, NPS, joining bonus, variable pay, CTC and the date of joining. Every field can be edited, and
-   the ones it guessed are highlighted.
-2. **Up to 3 jobs in one financial year.** Add the jobs you had before the offer. For each one you can
-   upload several files (offer letter, revision letters, payslips) or enter just the totals. When
-   files disagree, the app asks which figure is right, or whether your salary changed between them.
-   It also takes F&F settlement (leave encashment, notice recovery, clawback, buyout by the next
-   job) and when each new employer gets Form 12B.
-3. **Month-by-month cash flow** for every job, TDS the way each payroll deducts it, your tax for
-   the year, and the refund or amount due at filing.
-4. **Explains the gap** between "CTC ÷ 12" and a normal month's in-hand pay, and projects the next
-   year with a hike prorated for the months you've worked.
+1. **Takes all your documents at once.** Offer letters (old and new), appraisal letters, payslips,
+   your resignation email and the F&F slip, as PDF, Word, photos or pasted text. It works out what
+   each file is and which company it's from, groups them into jobs (up to 3 in a year), and puts
+   the jobs in date order with the new job last.
+2. **Tells your year as a story.** "Joined Sigma on 1 Mar 2024 at ₹67,500 basic. Hike from Apr
+   2026: CTC ₹18L → ₹21.9L (+21.6%), first paid in Jul 2026 with ₹93,933 arrears. Last working day
+   11 Nov 2026: November salary pro-rata for 11 of 30 days. Leave encashment 22 days × ₹2,736..."
+   Old letters are used as your starting salary and later letters or payslips update it.
+   - **Appraisal letters** without a breakup (just a % or a new CTC) raise every component by the
+     same %, from the effective date. If it's paid later, the difference comes as arrears.
+   - **Leaving a job:** last working day and pro-rata salary, leave encashment at basic ÷ 30,
+     basic ÷ 26, gross ÷ 30 or your own rate, notice-shortfall recovery on basic or gross, bonus
+     clawback, bond penalty, gratuity, and the month the F&F is paid. Amounts on an F&F slip win.
+   - **Joining:** joining date, joining bonus and when it's paid (and repayable), notice buyout
+     on actuals or up to a cap, and whether Form 12B is given.
+3. **Month-by-month money in your bank account** for every job, with TDS the way each payroll
+   deducts it.
+4. **ITR help:** the salary schedule as ITR-1 / Form 16 lay it out, the refund or tax payable,
+   TDS per employer to check against Form 16 and AIS, and a checklist to file by 31 July.
+5. **Explains the gap** between "CTC ÷ 12" and a normal month's in-hand pay, and projects the next
+   year with a prorated hike.
 
 ## Tax rules that update themselves
 
@@ -59,8 +68,8 @@ English model from `node_modules` into `public/ocr/`, so OCR never touches a CDN
 | Path | What |
 | --- | --- |
 | `src/rules/` | Tax and statutory rules as data, validation, and the online refresh |
-| `src/domain/` | Tax engine: up to 3 jobs, proration, PF by date, F&F, payroll TDS with Form 12B, filing position, next FY |
-| `src/extract/` | File → text (pdf.js, mammoth, tesseract.js), text → salary components, and merging several files per job |
+| `src/domain/` | Tax engine: up to 3 jobs, hikes with arrears, PF by date, F&F, buyout, payroll TDS with Form 12B, filing position, story, ITR summary, next FY |
+| `src/extract/` | File → text (pdf.js, mammoth, tesseract.js), document type and dated facts, grouping files into jobs, merging several files per job |
 | `src/ui/`, `src/app.tsx` | The step-by-step wizard and results screen (Preact) |
 
 ## Hosting (Cloudflare)

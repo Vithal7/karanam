@@ -56,7 +56,7 @@ const ANNUAL_ONLY: ComponentKey[] = ['joining', 'retention', 'variable', 'ctc', 
 
 // Order matters: the first match wins, so more specific patterns come first.
 const LABELS: [ComponentKey, RegExp][] = [
-  ['ctc', /\bctc\b|cost\s+to\s+(the\s+)?company|total\s+(annual\s+)?(compensation|remuneration|package)|annual\s+(compensation|package|remuneration)|gross\s+annual\s+compensation/i],
+  ['ctc', /\bt?ctc\b|cost\s+to\s+(the\s+)?company|total\s+(annual\s+|target\s+|fixed\s+and\s+variable\s+)?(compensation|remuneration|package|rewards?|emoluments)|annual\s+(compensation|package|remuneration|emoluments)|gross\s+annual\s+compensation|target\s+compensation|annual\s+salary\s+package|\b(compensation|package)\s*[:\-](?=\s*(?:₹|rs\.?|inr)?\s*\d)/i],
   ['joining', /joining\s+(bonus|amount)|sign(ing)?[\s-]*on\s+bonus|signing\s+bonus|one[\s-]*time\s+(joining|bonus)|relocation\s+(bonus|allowance)/i],
   ['retention', /retention\s+bonus/i],
   ['variable', /variable|performance\s+(linked|bonus|pay|incentive)|\bpli\b|\bstip\b|target\s+bonus|annual\s+(bonus|incentive)|incentive/i],
@@ -265,6 +265,14 @@ export function parseText(text: string): Extracted {
       if (v >= 100_000 && (!ctc || v > ctc)) ctc = v;
     }
   }
+  // No CTC label: an annexure's bottom line ("Total", "Grand Total", "Total (A+B+C)") usually is it.
+  if (!ctc && kind === 'offer') {
+    for (const l of lines) {
+      if (!/^\s*(grand\s+)?total\s*(\([^)]*\))?\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*\d/i.test(l)) continue;
+      const v = Math.max(0, ...numbersIn(l).filter((n) => !n.pct).map((n) => n.value));
+      if (v >= 100_000 && (!ctc || v > ctc)) ctc = v;
+    }
+  }
   if (ctc) components.ctc = { key: 'ctc', label: NICE.ctc, monthly: ctc / 12, annual: ctc, confidence: 'found' };
 
   const allowances: { label: string; monthly: number }[] = [];
@@ -374,6 +382,15 @@ export function parseText(text: string): Extracted {
       warnings.push(
         `Components add up to ₹${Math.round(sum).toLocaleString('en-IN')} but the letter's CTC is ₹${Math.round(ctc).toLocaleString('en-IN')}. Please double-check the figures.`,
       );
+  }
+  // Still no CTC: work it out from the breakup (fixed pay, employer PF, gratuity, insurance, variable).
+  if (!ctc && kind === 'offer' && components.basic) {
+    const keys: ComponentKey[] = ['basic', 'hra', 'special', 'lta', 'conveyance', 'otherAllowance', 'employerPf', 'gratuity', 'nps', 'insurance', 'variable'];
+    const sum = keys.reduce((a, k) => a + (components[k]?.annual || 0), 0) + allowances.reduce((a, x) => a + x.monthly * 12, 0);
+    if (sum >= 100_000) {
+      components.ctc = { key: 'ctc', label: NICE.ctc, monthly: sum / 12, annual: Math.round(sum), confidence: 'guessed' };
+      warnings.push(`The letter's CTC wasn't found, so it's worked out from the breakup: ₹${Math.round(sum).toLocaleString('en-IN')} a year. Check it against your letter.`);
+    }
   }
   if (!components.basic) warnings.push('Could not find Basic salary. Please enter it.');
   if (kind === 'offer' && !doj) warnings.push('Could not find the date of joining. Please enter it.');

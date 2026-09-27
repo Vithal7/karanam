@@ -5,7 +5,7 @@ import type { AsideDoc } from './extract/intake';
 import type { Choices, Mark } from './extract/merge';
 import { uid } from './format';
 
-export type StepId = 'upload' | 'story' | 'job-edit' | 'extras' | 'results';
+export type StepId = 'upload' | 'clarify' | 'story' | 'job-edit' | 'extras' | 'results';
 
 export type FieldMarks = Partial<Record<string, Mark>>;
 
@@ -32,6 +32,10 @@ export interface AppState {
   /** Per job: total TDS deducted so far this FY (from the latest payslip). */
   tdsSoFar: Record<string, number | null>;
   showNextFy: boolean;
+  /** You confirmed the timeline (stage 3); reset when new files come in. */
+  timelineOk?: boolean;
+  /** You've seen the month-by-month result (stage 4). */
+  seenResults?: boolean;
 }
 
 export const todayISO = () => {

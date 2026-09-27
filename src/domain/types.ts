@@ -157,6 +157,8 @@ export interface Facts {
   penalty?: number;
   buyout?: { mode: 'actuals' | 'cap'; cap?: number };
   joiningClawbackMonths?: number;
+  /** Probation from the offer letter, in months. */
+  probationMonths?: number;
   /** Tax computation sheet: income tax deducted so far this year. */
   tdsToDate?: number;
   /** Month-by-month actuals ("YYYY-MM"), from a payslip or a month-wise tax sheet. */

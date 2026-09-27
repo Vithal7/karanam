@@ -12,6 +12,19 @@ export function epfFor(s: Structure, month: string, rules: Rules): number {
   return rules.epf.rate * Math.min(s.basic, epfCeiling(rules, month));
 }
 
+/**
+ * When the EPF wage ceiling rises (₹15k -> ₹25k), the employer's PF rises with yours. If employer
+ * PF is part of your CTC, the CTC doesn't change, so the extra comes out of your allowance: the
+ * "₹1,200 less misc allowance from Sep 2026" in a payroll sheet.
+ */
+export function ctcNeutralPfCut(emp: Employment, s: Structure, month: string, rules: Rules): number {
+  if (s.epfMode !== 'statutory' || !emp.ctcParts?.employerPf) return 0;
+  const rev = emp.revisions.find((r) => r.structure === s);
+  const since = rev?.from ?? (emp.start ? emp.start.slice(0, 7) : month);
+  const extra = epfFor(s, month, rules) - epfFor(s, since, rules);
+  return extra > 0 ? Math.min(extra, s.special) : 0;
+}
+
 /** The structure actually paid in a given month: a hike counts from the month it's first paid. */
 export function structureFor(emp: Employment, month: string): Structure {
   let s = emp.structure;
@@ -91,7 +104,7 @@ export function buildLines(
     const s = structureFor(emp, month);
     const basic = s.basic * f;
     const hra = s.hra * f;
-    const special = s.special * f;
+    const special = (s.special - ctcNeutralPfCut(emp, s, month, rules)) * f;
     const others = s.others.reduce((a, o) => a + (o.amount || 0), 0) * f;
     const epf = epfFor(s, month, rules) * f;
     const pt = f > 0 ? s.pt : 0;

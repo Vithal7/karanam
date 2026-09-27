@@ -86,7 +86,7 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
     }
     const ctc = revisedCtc ?? (prevCtc && k ? Math.round(prevCtc * k) : undefined);
     const payoutMonth = f.payoutMonth && f.payoutMonth > from ? f.payoutMonth : undefined;
-    hikes.push({ from, payoutMonth, structure, ctc, pct: k ? k - 1 : undefined, source: `doc:appraisal:${d.name}`, scaled });
+    hikes.push({ from, payoutMonth, structure, ctc, pct: k ? k - 1 : undefined, source: `doc:appraisal:${d.name}`, scaled, gratuity: d.fields.gratuity || undefined });
     prev = structure;
     prevCtc = ctc ?? prevCtc;
   }
@@ -183,6 +183,16 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
   const offerFacts = docs.filter((d) => d.kind === 'offer').map((d) => d.facts ?? {});
   const bo = offerFacts.find((f) => f.buyout)?.buyout;
   if (bo) out.buyout = { ...(out.buyout ?? {}), mode: bo.mode, cap: bo.cap };
+  // A joining bonus with no stated pay month is usually paid once probation is over: with the
+  // salary of the month after it (3 months' probation from November -> February).
+  const probation = offerFacts.find((f) => f.probationMonths)?.probationMonths;
+  const statedMonth = docs.some((d) => d.kind === 'offer' && d.fields.joiningOffset !== undefined);
+  if (probation && !statedMonth && out.start) {
+    const month = addMonths(monthOf(out.start), probation);
+    out.oneTimes = out.oneTimes.map((o) => (o.kind === 'joining' && o.id === 'joining' ? { ...o, month } : o));
+    if (out.oneTimes.some((o) => o.kind === 'joining'))
+      notes.push(`Your letter has ${probation} months' probation and doesn't say when the joining bonus is paid, so it's taken as paid after probation, with the ${monthLong(month)} salary. Change it under "Check the numbers" if your letter says otherwise.`);
+  }
   const claw = offerFacts.find((f) => f.joiningClawbackMonths)?.joiningClawbackMonths;
   if (claw) out.oneTimes = out.oneTimes.map((o) => (o.kind === 'joining' ? { ...o, clawbackMonths: claw } : o));
 

@@ -176,6 +176,7 @@ export function extractFacts(text: string, kind: DocKind): Facts {
       const cap = moneyAfter(around, /up\s+to|upto|maximum\s+(of)?|max\.?|capped\s+at|not\s+exceeding|limit\s+of|subject\s+to\s+a\s+(maximum|cap)\s+of/, 40);
       f.buyout = cap ? { mode: 'cap', cap } : { mode: 'actuals' };
     }
+    f.probationMonths = findProbationMonths(flat);
     const jb = /(joining|sign[\s-]*on)\s+(bonus|amount)/i.exec(flat);
     if (jb) {
       const around = flat.slice(jb.index, jb.index + 400);
@@ -188,6 +189,24 @@ export function extractFacts(text: string, kind: DocKind): Facts {
   }
   // Anything above ₹5 crore is a misread (an ID or a merged table cell), not a settlement amount.
   return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== undefined && !(typeof v === 'number' && v > 50_000_000))) as Facts;
+}
+
+/** "a probation period of six months", "3 months' probation", "probation of 90 days" -> months. */
+export function findProbationMonths(flat: string): number | undefined {
+  const N = '(\\d{1,3}|one|two|three|four|five|six|nine|twelve)';
+  const res = [
+    new RegExp(`probation(?:ary)?(?:\\s+period)?(?:\\s+(?:of|will\\s+be|shall\\s+be|is|for))*\\s*(?:a\\s+period\\s+of\\s+)?\\(?${N}\\)?\\s*(?:\\(\\w+\\)\\s*)?(months?|days?)`, 'i'),
+    new RegExp(`${N}\\s*(?:\\(\\w+\\)\\s*)?(months?|days?)'?\\s+(?:of\\s+)?probation`, 'i'),
+  ];
+  for (const m of res.flatMap((re) => [...flat.matchAll(new RegExp(re.source, 'gi'))])) {
+    // "Notice period during probation is 15 days" is about notice, not probation.
+    if (/notice/i.test(flat.slice(Math.max(0, m.index - 40), m.index + m[0].length))) continue;
+    const n = WORDS[m[1].toLowerCase()] ?? parseInt(m[1], 10);
+    if (!n || (/day/i.test(m[2]) && n < 28)) continue;
+    const months = /day/i.test(m[2]) ? Math.round(n / 30) : n;
+    if (months >= 1 && months <= 12) return months;
+  }
+  return undefined;
 }
 
 const SUFFIX = /\b(private|pvt|limited|ltd|llp|inc|incorporated|corporation|corp|co|company|technologies|technology|tech|solutions|services|systems|software|labs|india|global|consulting|group)\b\.?/gi;

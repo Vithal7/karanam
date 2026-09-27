@@ -8,7 +8,7 @@ import { seriesClass } from './Chart';
 const short = (d: string) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '…');
 
 /** One card per company: dates in this FY and the money it puts in your bank, received vs to come. */
-export function CompanyCards(props: { s: Scenario; r: Result; children?: (index: number) => ComponentChildren; badges?: boolean }) {
+export function CompanyCards(props: { s: Scenario; r: Result; children?: (index: number) => ComponentChildren; badges?: boolean; money?: boolean }) {
   const { s, r } = props;
   const n = s.employers.length;
   const todayMonth = monthOf(s.today);
@@ -38,7 +38,7 @@ export function CompanyCards(props: { s: Scenario; r: Result; children?: (index:
               {e.end && ` · ${e.end < s.today ? 'left' : 'last day'} ${short(e.end)}`}
               {(from !== e.start || to !== e.end) && ` · counted ${short(from)} – ${short(to)}`}
             </div>
-            {Math.abs(total) > 500_000_000 || Math.abs(tds) > 500_000_000 ? (
+            {props.money === false ? null : Math.abs(total) > 500_000_000 || Math.abs(tds) > 500_000_000 ? (
               <p class="callout warn small">These numbers look wrong: a file was probably misread. Open "Check the numbers" and check each file's type and what we read from it.</p>
             ) : e.totalsOnly ? (
               <div class="company-money">
@@ -87,7 +87,7 @@ export function CompanyCards(props: { s: Scenario; r: Result; children?: (index:
                 );
               })()
             )}
-            {(() => {
+            {props.money !== false && (() => {
               const past = lines.filter((l) => l.month < todayMonth && l.factor > 0);
               if (!past.length || e.totalsOnly) return null;
               const est = past.filter((l) => l.tdsEstimated);
@@ -99,10 +99,10 @@ export function CompanyCards(props: { s: Scenario; r: Result; children?: (index:
                 </p>
               );
             })()}
-            {k < n - 1 && !e.totalsOnly && e.end > s.today && e.variable?.annual ? (
+            {props.money !== false && k < n - 1 && !e.totalsOnly && e.end > s.today && e.variable?.annual ? (
               <p class="muted small">This year's variable pay is usually forfeited if you leave before it's paid, so it isn't counted.</p>
             ) : null}
-            {k < n - 1 && !e.totalsOnly && e.end > s.today && (
+            {props.money !== false && k < n - 1 && !e.totalsOnly && e.end > s.today && (
               <p class="muted small">
                 {e.resignedOn
                   ? `Payroll knows you're leaving, so tax is spread over your last months.`

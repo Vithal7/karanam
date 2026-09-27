@@ -365,3 +365,27 @@ Income Tax 16,110`;
     expect(r.aside).toEqual([]);
   });
 });
+
+describe('joining bonus after probation', () => {
+  const OFFER = `Resilient Innovations Private Limited
+Date: 01/10/2026
+Offer of Employment
+Your date of joining will be 12th November 2026. You will be on probation for a period of three months.
+Basic Salary 1,42,500 17,10,000
+HRA 71,250 8,55,000
+Special Allowance 69,450 8,33,400
+Total CTC 38,00,000
+Joining Bonus 1,50,000`;
+  it('is paid with the salary of the month after probation', () => {
+    const { employers } = assignDocs([blankJob('New job', '2026-09-27')], [docFromText(OFFER, 'bp offer.pdf')], 2026);
+    const ev = applyEvents(applyDocs(employers[0], {}, bundledRules).emp, bundledRules, '2026-04');
+    expect(ev.emp.oneTimes.find((o) => o.kind === 'joining')?.month).toBe('2027-02');
+    expect(ev.notes.join(' ')).toMatch(/3 months' probation/);
+  });
+  it('a stated month wins', () => {
+    const t = OFFER.replace('Joining Bonus 1,50,000', 'Joining Bonus 1,50,000 payable with the first month salary');
+    const { employers } = assignDocs([blankJob('New job', '2026-09-27')], [docFromText(t, 'bp offer.pdf')], 2026);
+    const ev = applyEvents(applyDocs(employers[0], {}, bundledRules).emp, bundledRules, '2026-04');
+    expect(ev.emp.oneTimes.find((o) => o.kind === 'joining')?.month).toBe('2026-11');
+  });
+});

@@ -16,6 +16,7 @@ import { PrevVariableQuestion, needsPrevVariable } from '../PrevVariable';
 import { Money, Percent } from '../controls';
 import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
+import type { Pending } from '../pending';
 
 
 export interface HikeNeed {
@@ -52,6 +53,10 @@ function HikeQuestion(props: { need: HikeNeed; onAnswer: (f: Partial<Facts>) => 
 
 /** Your jobs, the money each puts in your bank, and one timeline of what happens when. */
 export function StoryStep(props: {
+  /** clarify: only the questions; timeline: the cards, money and timeline. */
+  mode: 'clarify' | 'timeline';
+  pending: Pending[];
+  onClarify: () => void;
   s: Scenario;
   r: Result | null;
   events: TimelineEvent[];
@@ -76,11 +81,42 @@ export function StoryStep(props: {
   const errors = validateEmployers(s);
   const unconfirmed = s.employers.slice(0, -1).filter((e) => !e.totalsOnly && e.endSource !== 'doc' && e.endSource !== 'user');
   const n = s.employers.length;
+  const clarify = props.mode === 'clarify';
+  const hard = props.pending.filter((p) => !p.soft);
   return (
     <>
-      <p class="lead">Here's {fyLabel(s.fy)} as your documents tell it. Check each company's numbers, then see the money month by month.</p>
+      {clarify ? (
+        <>
+          <p class="lead">
+            {hard.length
+              ? `${hard.length} thing${hard.length === 1 ? '' : 's'} to answer so the numbers are right. Nothing is assumed silently.`
+              : 'Nothing left to answer. Check the list below, then verify the timeline.'}
+          </p>
+          {props.pending.length > 0 && (
+            <ul class="pending-list">
+              {props.pending.map((p) => (
+                <li class={p.soft ? 'soft' : ''}>{p.text}</li>
+              ))}
+            </ul>
+          )}
+        </>
+      ) : (
+        <>
+          <p class="lead">Here's {fyLabel(s.fy)} as your documents tell it: when each job starts and ends, what each pays, and what happens when. Check it, then see the money month by month.</p>
+          {hard.length > 0 && (
+            <div class="callout warn">
+              <p>
+                {hard.length} thing{hard.length === 1 ? '' : 's'} still need{hard.length === 1 ? 's' : ''} an answer.{' '}
+                <button type="button" class="btn link inline" onClick={props.onClarify}>
+                  Answer now
+                </button>
+              </p>
+            </div>
+          )}
+        </>
+      )}
 
-      {props.inbox.length > 0 && (
+      {clarify && props.inbox.length > 0 && (
         <div class="card conflicts">
           <h3>Which job are these files for?</h3>
           {props.inbox.map((d) => (
@@ -109,7 +145,7 @@ export function StoryStep(props: {
         </div>
       )}
 
-      {props.aside.length > 0 && (
+      {clarify && props.aside.length > 0 && (
         <details class="card aside-docs">
           <summary>
             <strong>
@@ -138,15 +174,15 @@ export function StoryStep(props: {
       )}
 
       {r && (
-        <CompanyCards s={s} r={r} badges>
+        <CompanyCards s={s} r={r} badges money={!clarify}>
           {(k) => {
             const e = s.employers[k];
             return (
               <>
-                {k < n - 1 && !e.totalsOnly && e.endSource !== 'doc' && e.endSource !== 'user' && (
+                {clarify && k < n - 1 && !e.totalsOnly && e.endSource !== 'doc' && e.endSource !== 'user' && (
                   <ExitQuestion emp={e} next={s.employers[k + 1]} fy={s.fy} thirty={s.settings.thirtyDayMonth} onConfirm={props.onChangeJob} onChangeNext={props.onChangeJob} />
                 )}
-                {k < n - 1 && (e.endSource === 'doc' || e.endSource === 'user') && (
+                {clarify && k < n - 1 && (e.endSource === 'doc' || e.endSource === 'user') && (
                   <OverlapFix
                     end={e.end}
                     emp={e}
@@ -155,11 +191,19 @@ export function StoryStep(props: {
                     onNextStart={(v) => props.onChangeJob({ ...s.employers[k + 1], start: v, startSource: 'user' })}
                   />
                 )}
-                {needsPrevVariable(e, s.fy) && <PrevVariableQuestion emp={e} fy={s.fy} onChange={props.onChangeJob} />}
-                {(props.needs[e.id] ?? []).map((need) => (
+                {clarify && props.pending.some((p) => p.job === e.id && /differ between/.test(p.text)) && (
+                  <p class="callout warn small">
+                    Your files give different figures for some fields.{' '}
+                    <button type="button" class="btn link inline" onClick={() => props.onEdit(e.id)}>
+                      Choose which is right
+                    </button>
+                  </p>
+                )}
+                {clarify && needsPrevVariable(e, s.fy) && <PrevVariableQuestion emp={e} fy={s.fy} onChange={props.onChangeJob} />}
+                {clarify && (props.needs[e.id] ?? []).map((need) => (
                   <HikeQuestion need={need} onAnswer={(f) => props.onAnswerHike(e.id, need.docId, f)} />
                 ))}
-                {(() => {
+                {clarify && (() => {
                   const rc = reconcile(e, e.structure, e.start > `${s.fy}-04-01` ? e.start.slice(0, 7) : `${s.fy}-04`, rules);
                   return rc && !rc.ok ? (
                     <p class="callout warn small">
@@ -168,7 +212,7 @@ export function StoryStep(props: {
                     </p>
                   ) : null;
                 })()}
-                {(props.notes[e.id] ?? []).map((t) => (
+                {!clarify && (props.notes[e.id] ?? []).map((t) => (
                   <p class="callout warn small">{t}</p>
                 ))}
                 <div class="tl-actions">
@@ -190,10 +234,12 @@ export function StoryStep(props: {
         </CompanyCards>
       )}
 
+      {!clarify && (
       <div class="card">
         <h3>What happens when</h3>
         <Timeline events={props.events} today={s.today} jobs={n} />
       </div>
+      )}
 
       <div class="card">
         <h3>Missing something?</h3>
@@ -214,10 +260,12 @@ export function StoryStep(props: {
         </div>
       )}
       <Continue
-        label="Continue"
-        disabled={errors.length > 0 || props.inbox.length > 0 || unconfirmed.length > 0}
+        label={clarify ? 'Continue to the timeline' : 'Timeline looks right'}
+        disabled={clarify ? hard.length > 0 : errors.length > 0 || props.inbox.length > 0 || unconfirmed.length > 0}
         why={
-          props.inbox.length
+          clarify && hard.length
+            ? 'Answer the questions above first.'
+            : props.inbox.length
             ? 'Tell us which job each file is for.'
             : unconfirmed.length
               ? `Confirm when you leave ${unconfirmed.map((e) => e.name).join(' and ')}.`

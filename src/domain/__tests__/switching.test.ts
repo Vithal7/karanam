@@ -124,8 +124,7 @@ describe('gratuity and ex gratia', () => {
   it('under 5 years: ex gratia at the CTC gratuity rate, prorated, taxable', () => {
     const f = fnfItems(base, 2026)!;
     expect(f.gratuityKind).toBe('exgratia');
-    const years = (Date.parse('2026-11-01') - Date.parse('2025-01-20')) / 86_400_000 / 365.25 + 1 / 365.25;
-    expect(f.gratuity).toBe(Math.round(3240 * 12 * years));
+    expect(f.gratuity).toBe(Math.round(3240 * (12 / 31 + 21 + 1 / 30)));
     expect(f.gratuityExempt).toBe(0);
     expect(f.gratuityLabel).toMatch(/\/month × 21\.4 months/);
   });
@@ -141,6 +140,9 @@ describe('gratuity and ex gratia', () => {
     // A rate stated in the appraisal letter wins over scaling.
     const given = fnfItems({ ...emp, revisions: [{ ...emp.revisions[0], gratuity: 4000 }] }, 2026)!;
     expect(given.gratuityPeriods[1].monthly).toBe(4000);
+    // Your workbook: ((12/31)+17) x 3,240 + ((11/30)+4) x 4,387 for a last day of 11 Nov 2026.
+    const wb = fnfItems({ ...emp, end: '2026-11-11', revisions: [{ ...emp.revisions[0], gratuity: 4387 }] }, 2026)!;
+    expect(wb.gratuity).toBe(Math.round((12 / 31 + 17) * 3240 + (11 / 30 + 4) * 4387));
   });
   it('5+ years (4 years 240 days counts): 15/26 x basic x years, exempt', () => {
     const f = fnfItems({ ...base, start: '2021-03-01' }, 2026)!;
@@ -157,5 +159,22 @@ describe('gratuity and ex gratia', () => {
     const nov = r.employers[0].lines.find((l) => l.month === '2026-11')!;
     const eg = nov.oneTimes.find((o) => /Ex gratia/.test(o.label))!;
     expect(eg.taxable).toBe(true);
+  });
+});
+
+describe('EPF ceiling rise inside a fixed CTC', () => {
+  const statutory = { ...st(82080), epfMode: 'statutory' as const };
+  const s = (e: Employment): Scenario => ({ fy: 2026, today: '2026-09-27', employers: [e], settings: { thirtyDayMonth: false, nextFyHike: 0 } });
+  it('employer PF in the CTC: the extra PF comes out of the allowance from Sep 2026', () => {
+    const r = compute(s(job('S', '2025-01-20', '', 82080, { structure: statutory, ctcParts: { employerPf: 1800 } })));
+    const aug = r.employers[0].lines.find((l) => l.month === '2026-08')!;
+    const sep = r.employers[0].lines.find((l) => l.month === '2026-09')!;
+    expect([aug.epf, sep.epf]).toEqual([1800, 3000]);
+    expect(aug.special - sep.special).toBe(1200);
+  });
+  it('employer PF not in the CTC: the allowance stays', () => {
+    const r = compute(s(job('S', '2025-01-20', '', 82080, { structure: statutory })));
+    const lines = r.employers[0].lines;
+    expect(lines.find((l) => l.month === '2026-09')!.special).toBe(lines.find((l) => l.month === '2026-08')!.special);
   });
 });

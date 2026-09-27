@@ -23,7 +23,10 @@ import {
 import { Toggle } from './ui/controls';
 import { Continue } from './ui/Continue';
 import { OneTimeEditor } from './ui/Editors';
-import { Results, downloadCsv } from './ui/Results';
+import { Results } from './ui/Results';
+import { DownloadMenu } from './ui/Download';
+import { pendingItems } from './ui/pending';
+import { Stages } from './ui/Stages';
 import { RulesContext } from './ui/rulesContext';
 import { JobEditStep } from './ui/steps/JobEdit';
 import { StoryStep } from './ui/steps/Story';
@@ -31,7 +34,8 @@ import { Uploader, type ReadFile } from './ui/Uploader';
 
 const TITLES: Record<StepId, string> = {
   upload: 'Your documents',
-  story: 'Your year so far',
+  clarify: 'A few questions',
+  story: 'Check your timeline',
   'job-edit': 'Check the numbers',
   extras: 'Anything else?',
   results: 'Your money, month by month',
@@ -122,7 +126,7 @@ export function App() {
         const job = employers.find((e) => e.docs.some((dd) => dd.id === d?.id));
         if (job && d?.kind === 'offer') warnings[job.id] = [...(warnings[job.id] ?? []), ...f.x.warnings.map((w) => `${f.name}: ${w}`)];
       }
-      return rebuild({ ...x, scenario: { ...x.scenario, employers }, inbox: [...x.inbox, ...unassigned], aside: [...x.aside, ...aside], warnings }, changed, rules);
+      return rebuild({ ...x, scenario: { ...x.scenario, employers }, inbox: [...x.inbox, ...unassigned], aside: [...x.aside, ...aside], warnings, timelineOk: false }, changed, rules);
     });
 
   const assign = (docId: string, target: string) =>
@@ -182,7 +186,7 @@ export function App() {
     });
 
   const effective = useMemo(() => effectiveScenario(st), [st]);
-  const result = useMemo(() => (['story', 'results'].includes(st.step) && s.employers.length ? compute(effective, rules) : null), [effective, rules, st.step, s.employers.length]);
+  const result = useMemo(() => (['clarify', 'story', 'results'].includes(st.step) && s.employers.length ? compute(effective, rules) : null), [effective, rules, st.step, s.employers.length]);
   const story = useMemo(() => (result ? buildStory(effective, result) : []), [effective, result]);
   const events = useMemo(() => (result ? buildTimeline(effective, result) : []), [effective, result]);
 
@@ -191,8 +195,13 @@ export function App() {
   const openConflicts = (e: Employment) => mergeDocs(baseDocs(e.docs)).conflicts.filter((c) => !(st.choices[e.id] ?? {})[c.field]).length;
   const offer = s.employers[s.employers.length - 1];
 
-  const steps: StepId[] = ['upload', 'story', 'extras', 'results'];
-  const progress = (Math.max(0, steps.indexOf(st.step === 'job-edit' ? 'story' : st.step)) + 1) / steps.length;
+  const pending = useMemo(() => pendingItems(st, effective, rules, openConflicts), [st, effective, rules]);
+  const hasDocs = s.employers.some((e) => e.docs.length || e.structure.basic || e.totalsOnly);
+  const stageDone = [hasDocs, hasDocs && !pending.some((p) => !p.soft), !!st.timelineOk, !!st.seenResults];
+  const stageOf = (step: StepId): number =>
+    step === 'upload' ? 0 : step === 'clarify' ? 1 : step === 'story' || step === 'extras' ? 2 : step === 'results' ? 3 : stageOf(st.history[st.history.length - 1] ?? 'clarify');
+  const STAGE_STEP: StepId[] = ['upload', 'clarify', 'story', 'results'];
+  const goStage = (i: number) => setSt((x) => ({ ...x, step: STAGE_STEP[i], editing: null, history: [...x.history, x.step], seenResults: x.seenResults || i === 3 }));
 
   return (
     <RulesContext.Provider value={rules}>
@@ -217,9 +226,7 @@ export function App() {
             />
           )}
         </header>
-        <div class="progressbar" aria-hidden="true">
-          <span style={{ width: `${progress * 100}%` }} />
-        </div>
+        <Stages current={stageOf(st.step)} done={stageDone} onGo={goStage} />
 
         <main class="main">
           {rulesBanner && (
@@ -259,7 +266,7 @@ export function App() {
               <Uploader
                 onFiles={(f) => {
                   ingest(f);
-                  go('story');
+                  go('clarify');
                 }}
                 onManual={() => go('job-edit', offer.id)}
               />
@@ -267,8 +274,11 @@ export function App() {
             </>
           )}
 
-          {st.step === 'story' && (
+          {(st.step === 'story' || st.step === 'clarify') && (
             <StoryStep
+              mode={st.step === 'clarify' ? 'clarify' : 'timeline'}
+              pending={pending}
+              onClarify={() => go('clarify')}
               s={effective}
               r={result}
               events={events}
@@ -291,7 +301,7 @@ export function App() {
               onEdit={(id) => go('job-edit', id)}
               onRemove={removeJob}
               onAddJob={addJob}
-              onNext={() => go('extras')}
+              onNext={() => (st.step === 'clarify' ? go('story') : setSt((x) => ({ ...x, timelineOk: true, step: 'extras', editing: null, history: [...x.history, x.step] })))}
             />
           )}
 
@@ -315,7 +325,7 @@ export function App() {
               onDone={() => {
                 if (openConflicts(editing)) return;
                 setSt((x) => ({ ...x, scenario: { ...x.scenario, employers: orderJobs(x.scenario.employers) } }));
-                if (st.history[st.history.length - 1] === 'upload') go('story');
+                if (st.history[st.history.length - 1] === 'upload') go('clarify');
                 else back();
               }}
             />
@@ -339,7 +349,7 @@ export function App() {
                   label="Payroll prorates on a 30-day month (instead of calendar days)"
                 />
               </details>
-              <Continue label="Show my money" onClick={() => go('results')} />
+              <Continue label="Show my money" onClick={() => goStage(3)} />
             </>
           )}
 
@@ -358,9 +368,7 @@ export function App() {
                 <button type="button" class="btn" onClick={() => go('story')}>
                   Edit jobs and documents
                 </button>
-                <button type="button" class="btn" onClick={() => downloadCsv(result)}>
-                  Download CSV
-                </button>
+                <DownloadMenu r={result} s={effective} rules={rules} />
               </div>
             </>
           )}

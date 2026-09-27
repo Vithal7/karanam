@@ -200,36 +200,6 @@ function NextFy({ r, s, onHike }: { r: Result; s: Scenario; onHike: (v: number) 
   );
 }
 
-export function downloadCsv(r: Result) {
-  const head = ['Month', 'Employer', 'Basic', 'HRA', 'Special', 'Other allowances', 'One-time', 'Gross', 'PF', 'PT', 'NPS', 'Recoveries', 'TDS', 'In hand'];
-  const rows = r.months.flatMap((m) =>
-    m.lines.map((l) =>
-      [
-        monthName(m.month),
-        l.employerName,
-        l.basic,
-        l.hra,
-        l.special,
-        l.others,
-        l.oneTimes.reduce((a, o) => a + o.amount, 0),
-        l.gross,
-        l.epf,
-        l.pt,
-        l.nps,
-        l.recoveries,
-        l.tds,
-        l.inHand,
-      ].map((v) => (typeof v === 'number' ? Math.round(v) : `"${v.replace(/"/g, '""')}"`)),
-    ),
-  );
-  const csv = [head, ...rows].map((r) => r.join(',')).join('\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-  a.download = `in-hand-${fyLabel(r.fy).replace(/\s/g, '')}.csv`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
 export function Results(props: {
   r: Result;
   s: Scenario;

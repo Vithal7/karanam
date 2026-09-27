@@ -63,8 +63,20 @@ export interface GratuityPeriod {
 }
 
 const DAY = 86_400_000;
-const dayAfter = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`) + DAY).toISOString().slice(0, 10);
 const dayBeforeIso = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`) - DAY).toISOString().slice(0, 10);
+
+const dim = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+
+/** Months from one day to another, both counted: 20 Jan–30 Jun 2026 = 12/31 + 5. */
+export function calendarMonths(from: string, to: string): number {
+  const [y1, m1, d1] = from.split('-').map(Number);
+  const [y2, m2, d2] = to.split('-').map(Number);
+  if (y1 === y2 && m1 === m2) return (d2 - d1 + 1) / dim(y1, m1);
+  const first = (dim(y1, m1) - d1 + 1) / dim(y1, m1);
+  const last = d2 / dim(y2, m2);
+  const between = (y2 - y1) * 12 + (m2 - m1) - 1;
+  return first + between + last;
+}
 
 /**
  * Ex gratia accrues at the CTC's gratuity rate for the time served at that rate: the joining rate
@@ -87,8 +99,7 @@ export function exGratiaPeriods(emp: Employment): GratuityPeriod[] {
   }
   return cuts.map((c, k) => {
     const to = k + 1 < cuts.length ? dayBeforeIso(cuts[k + 1].from) : emp.end;
-    const days = (Date.parse(dayAfter(to)) - Date.parse(c.from)) / DAY;
-    const months = (days / 365.25) * 12;
+    const months = calendarMonths(c.from, to);
     return { from: c.from, to, monthly: c.monthly, scaled: c.scaled, months, amount: c.monthly * months, rev: c.rev };
   });
 }

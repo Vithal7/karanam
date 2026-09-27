@@ -107,3 +107,14 @@ describe('helpers', () => {
     expect(companyFromEmail('priya@gmail.com')).toBeUndefined();
   });
 });
+
+describe('probation', () => {
+  it('reads the probation period in its usual wordings', async () => {
+    const { findProbationMonths } = await import('../facts');
+    expect(findProbationMonths('You will be on probation for a period of six (6) months from your date of joining.')).toBe(6);
+    expect(findProbationMonths('The probation period will be 3 months.')).toBe(3);
+    expect(findProbationMonths('a probationary period of 90 days')).toBe(3);
+    expect(findProbationMonths("You will be on 6 months' probation")).toBe(6);
+    expect(findProbationMonths('Notice period during probation is 15 days.')).toBeUndefined();
+  });
+});

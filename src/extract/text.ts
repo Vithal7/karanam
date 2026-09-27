@@ -12,11 +12,14 @@ async function pdfText(file: Blob, onProgress?: Progress): Promise<string> {
     const page = await doc.getPage(p);
     const content = await page.getTextContent();
     const rows: { y: number; items: { x: number; s: string }[] }[] = [];
-    for (const it of content.items as { str: string; transform: number[] }[]) {
+    for (const it of content.items as { str: string; transform: number[]; height?: number }[]) {
       if (!('str' in it) || !it.str.trim()) continue;
       const x = it.transform[4];
       const y = it.transform[5];
-      let row = rows.find((r) => Math.abs(r.y - y) < 3);
+      // Table cells in one row can sit a few points apart (vertical centring), so allow
+      // for about half a line height rather than a fixed gap.
+      const tol = Math.max(3, 0.6 * (it.height || Math.abs(it.transform[3]) || 10));
+      let row = rows.find((r) => Math.abs(r.y - y) < tol);
       if (!row) rows.push((row = { y, items: [] }));
       row.items.push({ x, s: it.str });
     }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { compute } from './domain/compute';
 import { fyLabel, fyStart, maxDate, monthOf } from './domain/fy';
+import { fixedMonthly } from './domain/schedule';
 import { buildStory, buildTimeline } from './domain/story';
 import type { DocRecord, Employment, Facts } from './domain/types';
 import { applyEvents } from './extract/events';
@@ -52,7 +53,15 @@ function rebuild(x: AppState, ids: Iterable<string>, rules: Rules): AppState {
     sources[e.id] = a.sources;
     notes[e.id] = ev.notes;
     needs[e.id] = ev.needs;
-    if (a.ytdTds && (tdsSoFar[e.id] === undefined || tdsSoFar[e.id] === null)) tdsSoFar[e.id] = a.ytdTds.amount;
+    if (a.ytdTds && (tdsSoFar[e.id] === undefined || tdsSoFar[e.id] === null)) {
+      // A misread (a gross or taxable figure) must never become "tax already paid".
+      const since = maxDate(ev.emp.start || fyStart(x.scenario.fy), fyStart(x.scenario.fy));
+      const upto = a.ytdTds.asOf && a.ytdTds.asOf > since ? a.ytdTds.asOf : x.scenario.today;
+      const months = Math.max(1, (Date.parse(upto) - Date.parse(since)) / (30.4 * 86_400_000) + 1);
+      const earned = fixedMonthly(ev.emp.revisions.length ? ev.emp.revisions[ev.emp.revisions.length - 1].structure : ev.emp.structure) * months;
+      if (a.ytdTds.amount <= 0.4 * earned) tdsSoFar[e.id] = a.ytdTds.amount;
+      else notes[e.id] = [...notes[e.id], `The tax sheet's "tax deducted so far" read as ₹${Math.round(a.ytdTds.amount).toLocaleString('en-IN')}, which is too high for your salary, so it wasn't used. Enter the right figure under "Check the numbers".`];
+    }
     return ev.emp;
   });
   employers = orderJobs(employers);

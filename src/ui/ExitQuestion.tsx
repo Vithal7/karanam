@@ -4,6 +4,7 @@ import { noticeShortfall } from '../domain/schedule';
 import type { Employment } from '../domain/types';
 import { rs } from '../format';
 import { Choices, DateInput, Field, Num } from './controls';
+import { OverlapFix } from './OverlapFix';
 
 const long = (d: string) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
@@ -11,7 +12,14 @@ const long = (d: string) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString('e
  * We never assume when you leave: ask for the resignation date, last working day and notice
  * period, show the shortfall they imply, and only then use them.
  */
-export function ExitQuestion(props: { emp: Employment; next: Employment; fy: number; thirty: boolean; onConfirm: (e: Employment) => void }) {
+export function ExitQuestion(props: {
+  emp: Employment;
+  next: Employment;
+  fy: number;
+  thirty: boolean;
+  onConfirm: (e: Employment) => void;
+  onChangeNext: (e: Employment) => void;
+}) {
   const e = props.emp;
   const [resigned, setResigned] = useState<'yes' | 'no' | null>(e.resignedOn ? 'yes' : null);
   const [resignedOn, setResignedOn] = useState(e.resignedOn ?? '');
@@ -47,6 +55,7 @@ export function ExitQuestion(props: { emp: Employment; next: Employment; fy: num
           <Field label="Notice period" hint={e.noticeDays ? 'From your appointment letter.' : 'Check your appointment letter or HR policy.'}>
             <Num value={notice} onChange={setNotice} suffix="days" ariaLabel="Notice period in days" />
           </Field>
+          <OverlapFix end={end} emp={e} next={props.next} onEnd={setEnd} onNextStart={(v) => props.onChangeNext({ ...props.next, start: v, startSource: 'user' })} />
           {shortfall !== undefined && (
             <p class="note">
               {shortfall > 0
@@ -57,7 +66,7 @@ export function ExitQuestion(props: { emp: Employment; next: Employment; fy: num
           <button
             type="button"
             class="btn primary"
-            disabled={!end}
+            disabled={!end || (!!props.next.start && end >= props.next.start)}
             onClick={() =>
               props.onConfirm({
                 ...draft,

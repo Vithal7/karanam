@@ -71,8 +71,8 @@ const LABELS: [ComponentKey, RegExp][] = [
   ['hra', /\bhra\b|house\s+rent/i],
   ['lta', /\blta\b|leave\s+travel/i],
   ['conveyance', /conveyance|transport\s+allowance/i],
-  ['special', /special\s+(allowance|pay)|\bspecial\b|flexi(ble)?\s+(benefit|allowance|pay|component)|\bflexi\b|misc(ellaneous)?\.?\s*allowance|\bmisc(ellaneous)?\b|fixed\s+allowance|personal\s+allowance|supplementary\s+allowance|balance\s+allowance|cash\s+allowance|ad[\s-]?hoc\s+allowance|management\s+allowance|consolidated\s+allowance/i],
-  ['otherAllowance', /dearness\s+allowance|\bd\.?a\.?\b(?=\s*[:\d₹r])|other\s+allowance|allowance/i],
+  ['special', /special\s+(allowance|pay)|\bspecial\b|flexi(ble)?\s+(benefit|allowance|pay|component)|\bflexi\b|misc(ellaneous)?\.?\s*(allowance|allow|allw|alw)\.?|\bmisc(ellaneous)?\b|fixed\s+allowance|personal\s+allowance|supplementary\s+allowance|balance\s+allowance|cash\s+allowance|ad[\s-]?hoc\s+allowance|management\s+allowance|consolidated\s+allowance/i],
+  ['otherAllowance', /dearness\s+allowance|\bd\.?a\.?\b(?=\s*[:\d₹r])|other\s+allowance|allowance|\ballow\b\.?|\ballw\.?\b|\balw\.?\b|\ballce\b/i],
 ];
 
 const NICE: Record<ComponentKey, string> = {
@@ -191,14 +191,16 @@ interface Segment {
   text: string;
 }
 
-const isTotalText = (t: string) => /\btotal\b|\bgross\b|\bnet\s+(pay|salary|take)/i.test(t);
+const isTotalText = (t: string) => /\btotal\b|\bgross\b|\bnet\s+(pay|salary|take)/i.test(t.replace(/\([^)]*\)/g, ' '));
 
 /**
  * Splits a line into labelled segments. Several components can share a line ("Basic 82,080
  * Provident Fund 1,800", or prose), so a new segment starts at a label only when a number sits
  * between it and the previous label; otherwise labels merge ("House Rent Allowance").
  */
-export function segments(line: string): Segment[] {
+export function segments(raw: string): Segment[] {
+  // "Variable pay(IN Total CTC)": a bracketed note never names the row. Blank it out, keeping positions.
+  const line = raw.replace(/\([^)]*\)/g, (m) => ' '.repeat(m.length));
   const hits: { key: ComponentKey; prio: number; start: number; end: number }[] = [];
   LABELS.forEach(([key, re], prio) => {
     const g = new RegExp(re.source, 'gi');
@@ -224,7 +226,7 @@ export function segments(line: string): Segment[] {
   }
   return groups.map((g, i) => {
     let key = g.key;
-    const text = line.slice(g.start, groups[i + 1]?.start ?? line.length);
+    const text = raw.slice(g.start, groups[i + 1]?.start ?? raw.length);
     if (key === 'employerPf' && /employee/i.test(text) && !/employer/i.test(text)) key = 'employeePf';
     return { key, text };
   });
@@ -330,6 +332,8 @@ export function parseText(text: string): Extracted {
     } else continue;
 
     if (ALLOWANCE_KEYS.includes(key)) {
+      // Allowances come from salary tables, not sentences ("reimbursement up to Rs. 100 per month").
+      if (!looksLikeTableRow(rowName, money)) continue;
       const label = rowName || NICE[key];
       if (components[key] || (key !== 'special' && key !== 'lta' && key !== 'conveyance')) {
         if (!allowances.some((a) => a.label.toLowerCase() === label.toLowerCase())) allowances.push({ label, monthly: monthly! });
@@ -373,6 +377,17 @@ export function parseText(text: string): Extracted {
   }
   if (!components.basic) warnings.push('Could not find Basic salary. Please enter it.');
   if (kind === 'offer' && !doj) warnings.push('Could not find the date of joining. Please enter it.');
+
+  // Rows we don't recognise by name but that read like salary lines (monthly and annual figures
+  // 12x apart), e.g. "Suzlon Allow  5,24,520  43,710" or "Fixed Pay  ...": keep them as allowances.
+  for (const l of lines) {
+    if (segments(l).length) continue;
+    const label = rowLabel(l);
+    if (!label || /\b(total|gross|net|ctc|cost|deduction|pf|provident|gratuity|bonus|variable|incentive|insurance|tax|tds|reimburse|annual|monthly|component|particulars|amount)\b/i.test(label)) continue;
+    const money = numbersIn(l).filter((n) => !n.pct).map((n) => n.value);
+    const pair = money.length >= 2 && money.find((a) => money.some((b) => b !== a && Math.abs(b / a - 12) < 0.25));
+    if (pair && looksLikeTableRow(label, money) && !allowances.some((a) => a.label.toLowerCase() === label.toLowerCase())) allowances.push({ label, monthly: pair });
+  }
 
   // Don't count allowances already captured under their own key.
   const own = allowances.filter((a) => !Object.values(components).some((c) => c && c.label === a.label && ALLOWANCE_KEYS.includes(c.key)));
@@ -476,4 +491,12 @@ export function rowLabel(segment: string): string {
     .trim()
     .replace(/^\d+[.)]\s*/, '')
     .slice(0, 40);
+}
+
+/** A salary-table row: a short label and money figures, not a sentence of the letter. */
+function looksLikeTableRow(label: string, money: number[]): boolean {
+  if (!money.length || money.some((v) => v < 500)) return false;
+  const words = label.split(/\s+/).filter(Boolean);
+  if (words.length > 6) return false;
+  return !/\b(will|shall|entitled|as\s+per|up\s*to|upto|per\s+policy|eligible|subject|reimburs|payable|you|your)\b/i.test(label);
 }

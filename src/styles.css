@@ -1493,3 +1493,13 @@ select.kind-select {
   padding: 4px 6px;
   max-width: 45%;
 }
+
+.overlap-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.callout.err.overlap {
+  margin: 10px 0;
+}

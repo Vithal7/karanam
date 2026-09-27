@@ -232,19 +232,15 @@ export function findNoticeDays(text: string): number | undefined {
 
 /** Tax already deducted this year on a tax computation sheet, however the sheet phrases it. */
 export function findTdsToDate(text: string): number | undefined {
-  const direct = moneyAfter(
-    text,
-    /(income\s+tax|tax|tds)\s+(already\s+)?(deducted|paid|recovered|collected)\s*(till|to|up\s*to|so\s*far|until|upto|in\s+previous\s+months|till\s+last\s+month)?\s*(date|now)?\s*(\(ytd\))?\s*(:|-)?/,
-    60,
-    100,
-  );
-  if (direct !== undefined) return direct;
-  // Table rows: a line naming tax/TDS as deducted/recovered/paid; the rightmost figure is the total.
   for (const line of text.split('\n')) {
-    if (!/\b(tax|tds)\b/i.test(line) || !/(deducted|recovered|paid|ytd|till\s+date|to\s+date)/i.test(line)) continue;
-    if (/payable|balance|remaining|per\s+month|projected|to\s+be\s+deducted|net\s+tax/i.test(line)) continue;
-    const nums = numbersIn(line).filter((x) => !x.pct);
-    if (nums.length) return nums[nums.length - 1].value;
+    // Judge the row by its label (the words before the figures), never by words elsewhere.
+    const label = line.split(/[\d₹]/)[0];
+    if (!/\b(tax|tds)\b/i.test(label) || !/(deducted|recovered|paid|collected|ytd|till\s+date|to\s+date|so\s+far)/i.test(label)) continue;
+    if (/payable|balance|remaining|per\s+month|projected|to\s+be\s+deducted|net\s+tax|\bincome\b(?!\s+tax)|salary|gross|taxable|total\s+tax\s+on|on\s+which/i.test(label)) continue;
+    const nums = numbersIn(line.slice(label.length)).filter((x) => !x.pct);
+    if (!nums.length) continue;
+    // A month-wise row ends with its total; a single figure is the answer itself.
+    return nums.length > 2 ? nums[nums.length - 1].value : nums[0].value;
   }
   return undefined;
 }

@@ -196,10 +196,12 @@ export function applyDocs(
 
   const out: Employment = { ...emp, structure, revisions };
   if (name && (!emp.name || /^(new job|current job|job \d)$/i.test(emp.name))) out.name = name;
-  if (doj) {
+  if (emp.startSource === 'user') {
+    // A date you entered wins over the letters.
+  } else if (doj) {
     out.start = doj;
     out.startSource = 'doc';
-  } else if (emp.startSource !== 'user') {
+  } else {
     // No joining date in the letters: the appointment letter's own date is the best guess.
     const letter = ordered.find((d) => d.kind === 'offer' && d.docDate);
     if (letter) {

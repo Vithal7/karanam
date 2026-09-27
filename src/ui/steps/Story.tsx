@@ -10,6 +10,7 @@ import { reconcile } from '../../domain/reconcile';
 import { rs } from '../../format';
 import { useRules } from '../rulesContext';
 import { ExitQuestion } from '../ExitQuestion';
+import { OverlapFix } from '../OverlapFix';
 import { Money, Percent } from '../controls';
 import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
@@ -110,7 +111,16 @@ export function StoryStep(props: {
             return (
               <>
                 {k < n - 1 && !e.totalsOnly && e.endSource !== 'doc' && e.endSource !== 'user' && (
-                  <ExitQuestion emp={e} next={s.employers[k + 1]} fy={s.fy} thirty={s.settings.thirtyDayMonth} onConfirm={props.onChangeJob} />
+                  <ExitQuestion emp={e} next={s.employers[k + 1]} fy={s.fy} thirty={s.settings.thirtyDayMonth} onConfirm={props.onChangeJob} onChangeNext={props.onChangeJob} />
+                )}
+                {k < n - 1 && (e.endSource === 'doc' || e.endSource === 'user') && (
+                  <OverlapFix
+                    end={e.end}
+                    emp={e}
+                    next={s.employers[k + 1]}
+                    onEnd={(v) => props.onChangeJob({ ...e, end: v, endSource: 'user' })}
+                    onNextStart={(v) => props.onChangeJob({ ...s.employers[k + 1], start: v, startSource: 'user' })}
+                  />
                 )}
                 {(props.needs[e.id] ?? []).map((need) => (
                   <HikeQuestion need={need} onAnswer={(f) => props.onAnswerHike(e.id, need.docId, f)} />

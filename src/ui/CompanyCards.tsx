@@ -52,24 +52,40 @@ export function CompanyCards(props: { s: Scenario; r: Result; children?: (index:
                 </div>
               </div>
             ) : (
-              <div class="company-money">
-                <div>
-                  <span class="stat-label">In hand this year</span>
-                  <span class="num strong">{rs(total)}</span>
-                </div>
-                <div>
-                  <span class="stat-label">{upcoming ? 'Received' : 'Received so far'}</span>
-                  <span class="num">{rs(got)}</span>
-                </div>
-                <div>
-                  <span class="stat-label">Still to come</span>
-                  <span class="num">{rs(total - got)}</span>
-                </div>
-                <div>
-                  <span class="stat-label">Tax (TDS)</span>
-                  <span class="num">{rs(tds)}</span>
-                </div>
-              </div>
+              (() => {
+                const sum = (f: (l: (typeof lines)[number]) => number) => lines.reduce((a, l) => a + f(l), 0);
+                const gross = sum((l) => l.gross);
+                const epf = sum((l) => l.epf);
+                const pt = sum((l) => l.pt);
+                const nps = sum((l) => l.nps);
+                const rec = sum((l) => l.recoveries);
+                // Anything else payroll takes, so the statement always adds up to in-hand.
+                const other = gross - epf - pt - nps - rec - tds - total;
+                const row = (label: string, v: number, cls = '') =>
+                  Math.round(v) !== 0 || cls ? (
+                    <div class={`stmt-row ${cls}`}>
+                      <span>{label}</span>
+                      <span class="num">{cls === 'minus' ? `− ${rs(v)}` : rs(v)}</span>
+                    </div>
+                  ) : null;
+                return (
+                  <>
+                    <div class="stmt" aria-label={`${e.name} this year`}>
+                      {row('Gross pay', gross, 'gross')}
+                      {row('Income tax (TDS)', tds, 'minus')}
+                      {Math.round(epf) !== 0 && row('Provident fund (EPF)', epf, 'minus')}
+                      {Math.round(pt) !== 0 && row('Professional tax', pt, 'minus')}
+                      {Math.round(nps) !== 0 && row('NPS', nps, 'minus')}
+                      {Math.round(rec) !== 0 && row('Recoveries (notice, clawback)', rec, 'minus')}
+                      {Math.abs(other) >= 1 && row('Other deductions', other, 'minus')}
+                      {row('In hand', total, 'total')}
+                    </div>
+                    <p class="muted small stmt-foot">
+                      {upcoming ? 'Nothing received yet' : `${rs(got)} received so far`} · {rs(total - got)} still to come
+                    </p>
+                  </>
+                );
+              })()
             )}
             {(() => {
               const past = lines.filter((l) => l.month < todayMonth && l.factor > 0);

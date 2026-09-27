@@ -1,3 +1,4 @@
+import { parseEml } from './eml';
 import { ocrImage, type Progress } from './ocr';
 
 /** Rebuilds visual lines from pdf.js text items so table rows stay on one line. */
@@ -64,7 +65,10 @@ async function docxText(file: Blob): Promise<string> {
   return el.value;
 }
 
-export const ACCEPT = '.pdf,.docx,.txt,image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export const ACCEPT =
+  '.pdf,.docx,.txt,.eml,.jpg,.jpeg,.png,.heic,.heif,.webp,image/*,message/rfc822,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+const IMAGE = /\.(jpe?g|png|heic|heif|webp|gif|bmp|tiff?)$/;
 
 export async function fileToText(file: File, onProgress?: Progress): Promise<{ text: string; ocr: boolean }> {
   const name = file.name.toLowerCase();
@@ -76,9 +80,31 @@ export async function fileToText(file: File, onProgress?: Progress): Promise<{ t
     return { text: await ocrPdf(file, onProgress), ocr: true };
   }
   if (name.endsWith('.docx')) return { text: await docxText(file), ocr: false };
+  if (name.endsWith('.eml') || file.type === 'message/rfc822') return emlToText(file, onProgress);
   if (file.type.startsWith('text/') || name.endsWith('.txt')) return { text: await file.text(), ocr: false };
-  if (file.type.startsWith('image/')) return { text: await ocrImage(file, onProgress), ocr: true };
-  throw new Error('Unsupported file. Please upload a PDF, DOCX or a photo.');
+  if (file.type.startsWith('image/') || IMAGE.test(name)) return { text: await ocrImage(file, onProgress), ocr: true };
+  throw new Error('Unsupported file. Please upload a PDF, Word file, email (.eml) or a photo (JPG, PNG).');
+}
+
+/** An email: its headers and body, then the text of any attached letter (PDF, Word, photo). */
+async function emlToText(file: File, onProgress?: Progress): Promise<{ text: string; ocr: boolean }> {
+  const { text, attachments } = parseEml(await file.text());
+  const parts = [text];
+  let ocr = false;
+  for (const a of attachments.slice(0, 4)) {
+    const n = a.name.toLowerCase();
+    if (!/\.(pdf|docx|txt)$/.test(n) && !IMAGE.test(n) && !/^(application\/pdf|image\/)/.test(a.type)) continue;
+    if (/^image\//.test(a.type) && a.bytes.length < 20_000) continue; // signature logos
+    try {
+      onProgress?.(`Reading attachment ${a.name}`, 0);
+      const r = await fileToText(new File([a.bytes as BlobPart], a.name, { type: a.type }), onProgress);
+      parts.push(`--- Attachment: ${a.name} ---\n${r.text}`);
+      ocr ||= r.ocr;
+    } catch {
+      /* an attachment we can't read doesn't stop the email */
+    }
+  }
+  return { text: parts.join('\n\n'), ocr };
 }
 
 async function ocrPdf(file: Blob, onProgress?: Progress): Promise<string> {

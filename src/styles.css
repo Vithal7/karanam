@@ -1537,3 +1537,9 @@ select.kind-select {
 .aside-docs summary { cursor: pointer; }
 .aside-row { border-top: 1px solid var(--grid); padding: 8px 0; }
 .aside-row p { margin: 2px 0 6px; }
+.stmt { margin-top: 10px; font-size: 0.95rem; }
+.stmt-row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.stmt-row .num { font-variant-numeric: tabular-nums; }
+.stmt-row.minus { color: var(--muted); }
+.stmt-row.total { border-top: 1px solid var(--grid); margin-top: 4px; padding-top: 6px; font-weight: 700; }
+.stmt-foot { margin: 6px 0 0; }

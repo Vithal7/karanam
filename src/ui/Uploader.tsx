@@ -100,7 +100,7 @@ export function Uploader(props: {
             </label>
             {!props.compact && (
               <p class="muted small">
-                Select several at once: offer letters (old and new), appraisal letters, payslips, your resignation email, the F&F slip. PDF, Word or photos. They're read on this device and never uploaded.
+                Select several at once: offer letters (old and new), appraisal letters, payslips, your resignation email, the F&F slip. PDF, Word, emails (.eml) or photos (JPG, PNG). They're read on this device and never uploaded.
               </p>
             )}
           </>

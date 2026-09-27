@@ -1,9 +1,9 @@
 import { fnfItems } from '../domain/compute';
-import { fyStart, maxDate, monthLong, monthOf } from '../domain/fy';
+import { addMonths, fyStart, maxDate, monthLong, monthOf } from '../domain/fy';
 import { arrearsFor, fixedMonthly, noticeShortfall } from '../domain/schedule';
-import type { Buyout, Employment, FnF, Form12B, LeaveBasis, OneTime, Revision } from '../domain/types';
+import type { Buyout, Employment, FnF, LeaveBasis, OneTime, Revision } from '../domain/types';
 import { rs } from '../format';
-import { Choices, DateInput, Field, Money, MonthInput, Num, Percent, Segmented, Toggle } from './controls';
+import { DateInput, Field, Money, MonthInput, Num, Percent, Segmented, Toggle } from './controls';
 import { StructureEditor } from './Editors';
 
 /** Hikes during a job: when each applied, when it was first paid, and the new salary. */
@@ -153,6 +153,20 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
         </p>
       )}
 
+      <h3 class="mt">Gratuity or ex gratia</h3>
+      {items && (
+        <p class="note">
+          {items.gratuityKind === 'gratuity'
+            ? `${items.serviceYears.toFixed(1)} years of service, so gratuity applies: ${rs(items.gratuity)} (${items.gratuityLabel}). Tax-free up to ₹20 lakh.`
+            : items.gratuityKind === 'exgratia'
+              ? `${items.serviceYears.toFixed(1)} years of service is under the 5 needed for gratuity. Many employers pay ex gratia instead: ${rs(items.gratuity)} (${items.gratuityLabel}). Ex gratia is taxed as salary.`
+              : f.gratuityMode === 'none'
+                ? 'Not paid.'
+                : `No gratuity: ${items.gratuityLabel || 'none'}.`}
+        </p>
+      )}
+      <Toggle checked={f.gratuityMode === 'none'} onChange={(v) => setF({ gratuityMode: v ? 'none' : 'auto' })} label="My employer doesn't pay gratuity or ex gratia" />
+
       <h3 class="mt">Other settlement items</h3>
       <div class="grid2">
         <Field label="Bonus clawback" hint="Joining/relocation bonus you repay.">
@@ -163,8 +177,8 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
         </Field>
       </div>
       <div class="grid2">
-        <Field label="Gratuity" hint="After 5 years of service. Tax-free up to ₹20 lakh.">
-          <Money value={f.gratuity ?? 0} onChange={(v) => setF({ gratuity: v })} ariaLabel="Gratuity" />
+        <Field label="Gratuity / ex gratia" hint="Leave empty to calculate. Enter the F&F slip's amount if you have it.">
+          <Money value={f.gratuity ?? 0} onChange={(v) => setF({ gratuity: v || undefined })} ariaLabel="Gratuity or ex gratia" />
         </Field>
         <Field label="F&F paid in" hint="Often 30–60 days after you leave.">
           <MonthInput value={f.payMonth || (e.end ? monthOf(e.end) : '')} onChange={(v) => setF({ payMonth: v })} ariaLabel="F&F paid in" />
@@ -181,6 +195,8 @@ export function JoiningEditor(props: { emp: Employment; prev: Employment; fy: nu
   const owed = prevF ? prevF.noticeRecovery + prevF.clawback : 0;
   const bo: Buyout = e.buyout ?? { mode: 'none' };
   const setBo = (patch: Partial<Buyout>) => props.onChange({ ...e, buyout: { ...bo, ...patch } });
+  const joinMonth = monthOf(e.start || props.prev.end || '');
+  const f12Month = /^\d{4}-\d{2}$/.test(e.form12B) ? e.form12B : e.form12B === 'first' ? joinMonth : addMonths(joinMonth, 1);
   const jb = e.oneTimes.find((o) => o.kind === 'joining');
   const setJb = (patch: Partial<OneTime>) => props.onChange({ ...e, oneTimes: e.oneTimes.map((o) => (o.kind === 'joining' ? { ...o, ...patch } : o)) });
   return (
@@ -216,16 +232,19 @@ export function JoiningEditor(props: { emp: Employment; prev: Employment; fy: nu
           <Num value={jb.clawbackMonths ?? 0} onChange={(v) => setJb({ clawbackMonths: v || undefined })} suffix="months" ariaLabel="Joining bonus clawback months" />
         </Field>
       )}
-      <Field label="Form 12B" hint="Tells the new employer your earlier salary and TDS this year, so it deducts the right tax.">
-        <Choices<Form12B>
-          value={e.form12B}
-          onChange={(v) => props.onChange({ ...e, form12B: v })}
+      <Field label="Form 12B" hint="Gives the new employer your earlier salary and TDS this year, so it deducts the right tax from that month's payroll.">
+        <Segmented
+          ariaLabel="Will you submit Form 12B"
+          value={e.form12B === 'never' ? 'never' : 'yes'}
+          onChange={(v) => props.onChange({ ...e, form12B: v === 'never' ? 'never' : f12Month })}
           options={[
-            { value: 'first', label: 'Submitted before the first salary' },
-            { value: 'second', label: 'Submitted before the second salary' },
-            { value: 'never', label: "Won't submit it" },
+            { value: 'yes', label: 'I will submit it' },
+            { value: 'never', label: "I won't" },
           ]}
         />
+        {e.form12B !== 'never' && (
+          <MonthInput value={f12Month} onChange={(v) => props.onChange({ ...e, form12B: v })} ariaLabel="Form 12B submitted in (month)" />
+        )}
       </Field>
     </div>
   );

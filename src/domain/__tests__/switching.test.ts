@@ -68,7 +68,7 @@ describe('F&F options', () => {
 });
 
 describe('moving jobs', () => {
-  const S = job('S', '2025-01-01', '2026-11-11', 82080, {
+  const S = job('S', '2019-01-01', '2026-11-11', 82080, {
     fnf: { leaveDays: 22, noticeDaysRecovered: 21, clawback: 50000, penalty: 10000, gratuity: 300000, payMonth: '2026-12' },
   });
   const A = job('A', '2026-11-12', '', 142500, { form12B: 'second', buyout: { mode: 'cap', cap: 100000, includesClawback: true } });
@@ -116,5 +116,33 @@ describe('payroll before it knows you are leaving', () => {
     const sep2 = r2.employers[0].stage.find((x) => x.month === '2026-09')!;
     expect(sep2.monthsLeft).toBe(3);
     expect(sep2.projectedIncome).toBeLessThan(sep.projectedIncome);
+  });
+});
+
+describe('gratuity and ex gratia', () => {
+  const base = job('S', '2025-01-20', '2026-11-01', 82080, { fnf: { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 }, ctcParts: { gratuity: 3240 } });
+  it('under 5 years: ex gratia at the CTC gratuity rate, prorated, taxable', () => {
+    const f = fnfItems(base, 2026)!;
+    expect(f.gratuityKind).toBe('exgratia');
+    const years = (Date.parse('2026-11-01') - Date.parse('2025-01-20')) / 86_400_000 / 365.25 + 1 / 365.25;
+    expect(f.gratuity).toBe(Math.round(3240 * 12 * years));
+    expect(f.gratuityExempt).toBe(0);
+    expect(f.gratuityLabel).toMatch(/ex gratia/);
+  });
+  it('5+ years (4 years 240 days counts): 15/26 x basic x years, exempt', () => {
+    const f = fnfItems({ ...base, start: '2021-03-01' }, 2026)!;
+    expect(f.gratuityKind).toBe('gratuity');
+    expect(f.gratuity).toBe(Math.round((15 / 26) * 82080 * 6));
+    expect(f.gratuityExempt).toBe(f.gratuity);
+  });
+  it('can be switched off', () => {
+    expect(fnfItems({ ...base, fnf: { ...base.fnf!, gratuityMode: 'none' } }, 2026)!.gratuity).toBe(0);
+  });
+  it('ex gratia is taxed as salary', () => {
+    const s: Scenario = { fy: 2026, today: '2026-04-01', settings: { thirtyDayMonth: false, nextFyHike: 0 }, employers: [base, job('L', '2026-11-02', '', 142500)] };
+    const r = compute(s);
+    const nov = r.employers[0].lines.find((l) => l.month === '2026-11')!;
+    const eg = nov.oneTimes.find((o) => /Ex gratia/.test(o.label))!;
+    expect(eg.taxable).toBe(true);
   });
 });

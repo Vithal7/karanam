@@ -143,9 +143,10 @@ export function effectiveScenario(st: AppState): Scenario {
   const s = st.scenario;
   return {
     ...s,
-    employers: s.employers.map((e, i) =>
-      i === s.employers.length - 1 ? e : { ...e, tdsKnown: spreadTdsSoFar(e, s, st.tdsSoFar[e.id]) },
-    ),
+    employers: s.employers.map((e0, i) => {
+      const e = e0.tdsManual ? { ...e0, tdsKnown: { ...e0.tdsKnown, ...e0.tdsManual } } : e0;
+      return i === s.employers.length - 1 ? e : { ...e, tdsKnown: spreadTdsSoFar(e, s, st.tdsSoFar[e.id]) };
+    }),
   };
 }
 

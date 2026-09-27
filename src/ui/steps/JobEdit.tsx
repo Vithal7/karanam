@@ -9,6 +9,7 @@ import { DocsPanel } from '../Docs';
 import { OneTimeEditor, StructureEditor } from '../Editors';
 import { ExitEditor, HikesEditor, JoiningEditor, VariableEditor } from '../JobSections';
 import { ReconcileCard } from '../Reconcile';
+import { TdsMonths } from '../TdsMonths';
 import type { ReadFile } from '../Uploader';
 
 /** Everything about one job: its files, salary and hikes, and how you joined or left it. */
@@ -123,6 +124,7 @@ export function JobEditStep(props: {
                 </Field>
               </div>
               {isNew && <VariableEditor emp={e} onChange={props.onChange} />}
+              {isNew && <TdsMonths emp={e} s={s} onChange={props.onChange} />}
             </div>
           )}
 
@@ -137,6 +139,7 @@ export function JobEditStep(props: {
                 >
                   <Money value={props.tdsSoFar ?? 0} onChange={(v) => props.onTdsSoFar(v || null)} ariaLabel="TDS so far" />
                 </Field>
+                <TdsMonths emp={e} s={s} onChange={props.onChange} />
               </div>
               <ExitEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} />
             </>

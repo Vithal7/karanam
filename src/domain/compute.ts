@@ -32,7 +32,14 @@ export interface FnFItems {
   noticeFromSlip: boolean;
   clawback: number;
   penalty: number;
+  /** Gratuity (5+ years, exempt up to ₹20 lakh) or ex gratia in lieu of it (under 5 years, taxable). */
   gratuity: number;
+  gratuityKind: 'gratuity' | 'exgratia' | 'none';
+  /** Tax-free part (gratuity only). */
+  gratuityExempt: number;
+  /** How it was worked out, in words. */
+  gratuityLabel: string;
+  serviceYears: number;
   /** Month the F&F is paid. */
   month: string;
   /** Month of the last working day (pro-rata salary). */
@@ -67,6 +74,7 @@ export function fnfItems(emp: Employment, fy: number, thirty = false): FnFItems 
           : `basic ${inr(st.basic)} ÷ 30`;
   const noticePerDay = (f.noticeBasis === 'gross' ? gross : st.basic) / 30;
   const w = window(emp, fy);
+  const g = gratuityFor(emp, st.basic, f);
   return {
     perDay,
     leaveRateLabel,
@@ -78,7 +86,7 @@ export function fnfItems(emp: Employment, fy: number, thirty = false): FnFItems 
     noticeFromSlip: f.noticeAmount !== undefined,
     clawback: f.clawback || 0,
     penalty: f.penalty || 0,
-    gratuity: f.gratuity || 0,
+    ...g,
     month: f.payMonth || lastMonth,
     lastMonth,
     lastMonthFactor: w ? monthFactor(lastMonth, w.start, w.end, thirty) : 0,
@@ -86,6 +94,40 @@ export function fnfItems(emp: Employment, fy: number, thirty = false): FnFItems 
 }
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+
+/** 4 years and 240 days counts as 5 years for gratuity. */
+const GRATUITY_MIN_YEARS = 4 + 240 / 365;
+
+/**
+ * Gratuity at exit. 5+ years: 15/26 × last basic × completed years (6+ months round up), exempt up
+ * to ₹20 lakh under s.10(10). Under 5 years many employers pay ex gratia instead, at the yearly
+ * gratuity rate in the CTC, prorated for service; ex gratia is taxable salary.
+ */
+export function gratuityFor(emp: Employment, basic: number, f: NonNullable<Employment['fnf']>) {
+  const years = emp.start && emp.end ? Math.max(0, (Date.parse(emp.end) - Date.parse(emp.start)) / 86_400_000 + 1) / 365.25 : 0;
+  const qualifies = years >= GRATUITY_MIN_YEARS;
+  const none = { gratuity: 0, gratuityKind: 'none' as const, gratuityExempt: 0, gratuityLabel: '', serviceYears: years };
+  if (f.gratuityMode === 'none') return none;
+  if (f.gratuity !== undefined) {
+    const exempt = qualifies ? Math.min(f.gratuity, GRATUITY_EXEMPT_CAP) : 0;
+    return { gratuity: f.gratuity, gratuityKind: qualifies ? ('gratuity' as const) : ('exgratia' as const), gratuityExempt: exempt, gratuityLabel: 'as per your F&F slip', serviceYears: years };
+  }
+  if (qualifies) {
+    const whole = Math.floor(years) + (years % 1 >= 0.5 ? 1 : 0);
+    const amount = Math.round((15 / 26) * basic * whole);
+    return { gratuity: amount, gratuityKind: 'gratuity' as const, gratuityExempt: Math.min(amount, GRATUITY_EXEMPT_CAP), gratuityLabel: `15/26 × basic ${inr(basic)} × ${whole} years`, serviceYears: years };
+  }
+  const monthlyRate = emp.ctcParts?.gratuity;
+  if (!monthlyRate) return { ...none, gratuityLabel: 'under 5 years of service and no gratuity rate in your CTC' };
+  const amount = Math.round(monthlyRate * 12 * years);
+  return {
+    gratuity: amount,
+    gratuityKind: 'exgratia' as const,
+    gratuityExempt: 0,
+    gratuityLabel: `ex gratia at the CTC's gratuity rate ${inr(monthlyRate * 12)} a year × ${years.toFixed(2)} years served`,
+    serviceYears: years,
+  };
+}
 
 /** What the next job reimburses: notice recovery (and clawback if covered), up to any cap. */
 export function buyoutAmount(prev: FnFItems | null, next: Employment, prevEmp?: Employment): { amount: number; claimed: number } {
@@ -102,7 +144,9 @@ export function form12BMonth(s: Scenario, k: number): string | null {
   if (k === 0 || !emp || emp.form12B === 'never') return null;
   const w = window(emp, s.fy);
   if (!w) return null;
-  return addMonths(monthOf(w.start), emp.form12B === 'second' ? 1 : 0);
+  const join = monthOf(w.start);
+  if (/^\d{4}-\d{2}$/.test(emp.form12B)) return emp.form12B < join ? join : emp.form12B;
+  return addMonths(join, emp.form12B === 'second' ? 1 : 0);
 }
 
 /** Problems that make the timeline impossible, in plain words. */
@@ -208,11 +252,12 @@ export function compute(s: Scenario, rules: Rules = bundledRules): Result {
       if (fnf.noticeRecovery) extraRec.push({ id: 'fnf-notice', label: 'Notice recovery', amount: fnf.noticeRecovery, month: fnf.month });
       if (fnf.clawback) extraRec.push({ id: 'fnf-clawback', label: 'Bonus clawback', amount: fnf.clawback, month: fnf.month });
       if (fnf.penalty) extraRec.push({ id: 'fnf-penalty', label: 'Penalty / bond recovery', amount: fnf.penalty, month: fnf.month });
-      if (fnf.gratuity) {
-        const exempt = Math.min(fnf.gratuity, GRATUITY_EXEMPT_CAP);
-        extraOt.push({ id: 'fnf-gratuity', label: 'Gratuity', kind: 'other', amount: exempt, month: fnf.month, taxable: false });
-        if (fnf.gratuity > exempt)
-          extraOt.push({ id: 'fnf-gratuity-tax', label: 'Gratuity above ₹20 lakh', kind: 'other', amount: fnf.gratuity - exempt, month: fnf.month, taxable: true });
+      if (fnf.gratuityKind === 'gratuity') {
+        extraOt.push({ id: 'fnf-gratuity', label: 'Gratuity', kind: 'other', amount: fnf.gratuityExempt, month: fnf.month, taxable: false });
+        if (fnf.gratuity > fnf.gratuityExempt)
+          extraOt.push({ id: 'fnf-gratuity-tax', label: 'Gratuity above ₹20 lakh', kind: 'other', amount: fnf.gratuity - fnf.gratuityExempt, month: fnf.month, taxable: true });
+      } else if (fnf.gratuityKind === 'exgratia' && fnf.gratuity) {
+        extraOt.push({ id: 'fnf-exgratia', label: 'Ex gratia (in lieu of gratuity)', kind: 'other', amount: fnf.gratuity, month: fnf.month, taxable: true });
       }
     }
     const bo = k > 0 ? buyoutAmount(prevFnf, emp, s.employers[k - 1]) : { amount: 0, claimed: 0 };

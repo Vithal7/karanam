@@ -105,8 +105,10 @@ export interface FnF {
   clawback: number;
   /** Bond or contract-breach penalty. */
   penalty?: number;
-  /** Gratuity paid in F&F (5+ years of service). Exempt up to ₹20 lakh. */
+  /** Gratuity or ex gratia amount from the F&F slip (or entered); overrides the calculation. */
   gratuity?: number;
+  /** 'auto' (default): gratuity at 5+ years, ex gratia from the CTC's yearly gratuity rate below that; 'none': not paid. */
+  gratuityMode?: 'auto' | 'none';
   /** Month the F&F is paid; empty = with the last salary. */
   payMonth?: string;
   /** @deprecated v2: use the next job's `buyout`. */
@@ -160,7 +162,11 @@ export interface Facts {
 }
 
 /** When the employer gets Form 12B (earlier salary + TDS) relative to the joining month. */
-export type Form12B = 'first' | 'second' | 'never';
+/**
+ * When the employer gets Form 12B: a month ("YYYY-MM"), or 'never'. 'first'/'second' (its first or
+ * second payroll) are older saved answers, still understood.
+ */
+export type Form12B = string;
 
 export type DocKind = 'offer' | 'appraisal' | 'payslip' | 'resignation' | 'fnf' | 'taxsheet' | 'other';
 
@@ -208,6 +214,8 @@ export interface Employment {
    * projected the way payroll would.
    */
   tdsKnown: Record<string, number>;
+  /** TDS you entered month by month; wins over what files say. */
+  tdsManual?: Record<string, number>;
   /** Full & final settlement, for a job that ends before the next one starts. */
   fnf?: FnF;
   /** For every job after the first: when it learns about the earlier ones. */

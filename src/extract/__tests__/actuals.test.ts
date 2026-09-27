@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { compute } from '../../domain/compute';
 import type { Scenario } from '../../domain/types';
 import { bundledRules } from '../../rules';
-import { spreadTdsSoFar } from '../../state';
+import { effectiveScenario, initialState, spreadTdsSoFar } from '../../state';
 import { applyEvents } from '../events';
 import { blankJob, docFromText } from '../intake';
 import { applyDocs } from '../merge';
@@ -112,5 +112,39 @@ describe("last year's variable pay", () => {
     expect(needsPrevVariable(e, 2026)).toBe(true);
     expect(needsPrevVariable({ ...e, prevVariable: 'no' }, 2026)).toBe(false);
     expect(needsPrevVariable({ ...e, start: '2026-05-01' }, 2026)).toBe(false);
+  });
+});
+
+describe('more TDS layouts', () => {
+  it('a two-column Month | TDS table', () => {
+    const T = 'Financial Year 2026-27\nMonth          Income Tax Deducted\nApr 2026            16,110\nMay 2026            16,110\nJun 2026            16,110\nJul 2026            98,450\nAug 2026            32,220';
+    const m = parseMonthTable(T, 2026, '2026-09');
+    expect(m['2026-04'].tds).toBe(16110);
+    expect(m['2026-07'].tds).toBe(98450);
+  });
+  it('month-amount pairs under a TDS heading', () => {
+    const T = 'Tax deducted so far (month-wise)\nApr 16,110  May 16,110  Jun 16,110  Jul 98,450  Aug 32,220';
+    const m = parseMonthTable(T, 2026, '2026-09');
+    expect(Object.keys(m).sort()).toEqual(['2026-04', '2026-05', '2026-06', '2026-07', '2026-08']);
+    expect(m['2026-08'].tds).toBe(32220);
+  });
+  it('other wordings of the TDS row', () => {
+    for (const label of ['Income-tax', 'IT Deducted', 'Tax Deduction', 'TDS on Salary', 'Income Tax Recovered']) {
+      const T = `Financial Year 2026-27\nParticulars  Apr  May  Jun\n${label}  16,110  16,110  16,110`;
+      expect(parseMonthTable(T, 2026, '2026-09')['2026-05']?.tds, label).toBe(16110);
+    }
+  });
+});
+
+describe('TDS typed in month by month', () => {
+  it('wins over the files and survives the year-to-date spread', () => {
+    const st = initialState();
+    const a = { ...blankJob('A', '2025-01-20'), start: '2025-01-20', end: '2026-11-01', tdsKnown: { '2026-04': 10_000, '2026-05': 10_000 }, tdsManual: { '2026-05': 12_000, '2026-06': 11_000 } };
+    const b = { ...blankJob('B', '2026-11-02'), start: '2026-11-02' };
+    const s = { ...st.scenario, fy: 2026, today: '2026-09-27', employers: [a, b] };
+    const eff = effectiveScenario({ ...st, scenario: s, tdsSoFar: {} });
+    expect(eff.employers[0].tdsKnown).toEqual({ '2026-04': 10_000, '2026-05': 12_000, '2026-06': 11_000 });
+    const last = effectiveScenario({ ...st, scenario: { ...s, employers: [a] }, tdsSoFar: {} });
+    expect(last.employers[0].tdsKnown['2026-06']).toBe(11_000);
   });
 });

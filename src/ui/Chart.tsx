@@ -22,15 +22,20 @@ export function CashflowChart(props: { months: MonthSummary[]; names: string[]; 
   const [hover, setHover] = useState<number | null>(null);
   const ms = props.months;
   const n = props.names.length;
-  const stacks = ms.map((m) => props.names.map((_, k) => m.lines.filter((l) => l.employer === k).reduce((a, l) => a + Math.max(0, l.inHand), 0)));
+  // Net in-hand per job per month. A job can be negative (an F&F where notice recovery is more
+  // than what's due): that part hangs below the zero line.
+  const nets = ms.map((m) => props.names.map((_, k) => m.lines.filter((l) => l.employer === k).reduce((a, l) => a + l.inHand, 0)));
+  const stacks = nets.map((st) => st.map((v) => Math.max(0, v)));
   const max = niceMax(Math.max(...stacks.map((st) => st.reduce((a, b) => a + b, 0))));
+  const worst = Math.max(0, ...nets.map((st) => -st.reduce((a, v) => a + Math.min(0, v), 0)));
+  const lo = worst > 0 ? Math.min(max, niceMax(worst)) : 0;
   const iw = W - PAD.l - PAD.r;
   const ih = H - PAD.t - PAD.b;
   const slot = iw / 12;
   const bw = Math.min(22, slot - 6);
-  const y = (v: number) => PAD.t + ih - (v / max) * ih;
-  const ticks = [0, max / 2, max];
-  const present = props.names.map((_, k) => stacks.some((st) => st[k] > 0));
+  const y = (v: number) => PAD.t + ih - ((Math.max(v, -lo) + lo) / (max + lo)) * ih;
+  const ticks = lo ? [-lo, 0, max] : [0, max / 2, max];
+  const present = props.names.map((_, k) => nets.some((st) => st[k] !== 0));
 
   // Bar with only the top corners rounded (4px), anchored to its base.
   const bar = (x: number, y0: number, y1: number, roundTop: boolean) => {
@@ -88,8 +93,38 @@ export function CashflowChart(props: { months: MonthSummary[]; names: string[]; 
                   if (v <= 0) return null;
                   const base = y(acc) - (acc > 0 ? 2 : 0); // 2px surface gap between segments
                   acc += v;
-                  return <path d={bar(x, base, y(acc), k === topIndex)} class={seriesClass(k, n)} />;
+                  const top = y(acc);
+                  const h = base - top;
+                  return (
+                    <>
+                      <path d={bar(x, base, top, k === topIndex)} class={seriesClass(k, n)} />
+                      {/* The amount inside its segment, when there's room: both companies show in a transition month. */}
+                      {h >= 11 && (
+                        <text x={x + bw / 2} y={top + h / 2 + 2.6} class="bar-label" text-anchor="middle">
+                          {rsShort(v).replace('₹', '')}
+                        </text>
+                      )}
+                    </>
+                  );
                 })}
+                {(() => {
+                  let down = 0;
+                  return nets[i].map((v, k) => {
+                    if (v >= 0) return null;
+                    const top = y(down) + (down < 0 ? 2 : 0);
+                    down += v;
+                    const bottom = y(down);
+                    const h = bottom - top;
+                    return (
+                      <>
+                        <path d={bar(x, bottom, top, false)} class={`${seriesClass(k, n)} neg`} />
+                        <text x={x + bw / 2} y={h >= 11 ? top + h / 2 + 2.6 : bottom + 8} class={`bar-label ${h >= 11 ? '' : 'outside'}`} text-anchor="middle">
+                          −{rsShort(-v).replace('₹', '')}
+                        </text>
+                      </>
+                    );
+                  });
+                })()}
                 <text x={x + bw / 2} y={H - 8} class="tick" text-anchor="middle">
                   {monthName(m.month, false).slice(0, 1)}
                   <title>{monthName(m.month)}</title>

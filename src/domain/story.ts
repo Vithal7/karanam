@@ -94,7 +94,11 @@ export function buildStory(s: Scenario, r: Result): StoryJob[] {
         });
       if (f.clawback) lines.push({ text: `Bonus clawback: ${inr(f.clawback)} deducted.`, tone: 'warn' });
       if (f.penalty) lines.push({ text: `Penalty / bond recovery: ${inr(f.penalty)} deducted.`, tone: 'warn' });
-      if (f.gratuity) lines.push({ text: `Gratuity ${inr(f.gratuity)} (tax-free up to ₹20 lakh).`, tone: 'good' });
+      if (f.gratuity)
+        lines.push({
+          text: f.gratuityKind === 'exgratia' ? `Ex gratia ${inr(f.gratuity)} in lieu of gratuity (${f.gratuityLabel}); taxable.` : `Gratuity ${inr(f.gratuity)} (${f.gratuityLabel}); tax-free up to ₹20 lakh.`,
+          tone: 'good',
+        });
       if (f.leaveEncashment || f.noticeRecovery || f.clawback || f.penalty || f.gratuity)
         lines.push({ text: `F&F settled in ${monthLong(f.month)}.` });
     }
@@ -210,6 +214,7 @@ export function buildTimeline(s: Scenario, r: Result): TimelineEvent[] {
     // Leaving.
     if (!isNew && e.end) {
       const exitDocs = e.docs.some((d) => d.kind === 'resignation' || d.kind === 'fnf');
+      const confirmed = exitDocs || e.endSource === 'doc' || e.endSource === 'user';
       if (e.resignedOn) ev.push({ date: e.resignedOn, job: k, text: `${past(e.resignedOn) ? 'Resigned from' : 'Resign from'} ${name}` });
       const f = fnfItems(e, s.fy, thirty);
       const last = r.employers[k]?.lines.find((l) => l.month === monthOf(e.end));
@@ -222,14 +227,14 @@ export function buildTimeline(s: Scenario, r: Result): TimelineEvent[] {
       ev.push({
         date: e.end,
         job: k,
-        text: `Last day at ${name}${exitDocs || past(e.end) ? '' : ' (assumed)'}`,
-        detail: [prorata, exitDocs ? undefined : `Taken as the day before ${nm(s.employers[k + 1])} starts. Add your resignation email when you have it.`].filter(Boolean).join(' '),
-        tone: exitDocs ? undefined : 'info',
+        text: `Last day at ${name}${confirmed || past(e.end) ? '' : ' (assumed)'}`,
+        detail: [prorata, confirmed ? undefined : `Taken as the day before ${nm(s.employers[k + 1])} starts. Add your resignation email when you have it.`].filter(Boolean).join(' '),
+        tone: confirmed ? undefined : 'info',
       });
       if (f && (f.leaveEncashment || f.noticeRecovery || f.clawback || f.penalty || f.gratuity)) {
         const parts = [
           f.leaveEncashment ? `+${inr(f.leaveEncashment)} leave encashment${f.leaveFromSlip ? '' : ` (${e.fnf!.leaveDays} days × ${inr(f.perDay)}, ${f.leaveRateLabel})`}` : '',
-          f.gratuity ? `+${inr(f.gratuity)} gratuity` : '',
+          f.gratuity ? `+${inr(f.gratuity)} ${f.gratuityKind === 'exgratia' ? 'ex gratia (in lieu of gratuity, taxable)' : 'gratuity (tax-free)'}` : '',
           f.noticeRecovery ? `−${inr(f.noticeRecovery)} notice recovery${f.noticeFromSlip ? '' : ` (${e.fnf!.noticeDaysRecovered} days × ${inr(f.noticePerDay)})`}` : '',
           f.clawback ? `−${inr(f.clawback)} bonus clawback` : '',
           f.penalty ? `−${inr(f.penalty)} penalty` : '',
@@ -243,7 +248,7 @@ export function buildTimeline(s: Scenario, r: Result): TimelineEvent[] {
       const prev = s.employers[k - 1];
       const pf = fnfItems(prev, s.fy, thirty);
       const f12 = form12BMonth(s, k);
-      if (f12) ev.push({ date: m1(addMonths(f12, 0)), monthOnly: true, job: k, text: `Give ${name} Form 12B before this salary`, detail: `So TDS here counts what you earned at ${nm(prev)}.`, action: !past(m1(f12)) });
+      if (f12) ev.push({ date: m1(addMonths(f12, 0)), monthOnly: true, job: k, text: `Submit Form 12B to ${name}`, detail: `So TDS here counts what you earned at ${nm(prev)}.`, action: !past(m1(f12)) });
       else ev.push({ date: e.start, job: k, text: `No Form 12B for ${name}`, detail: `It will deduct too little tax; the difference is due when you file.`, tone: 'warn' });
       if (pf) {
         const { amount, claimed } = buyoutAmount(pf, e, prev);

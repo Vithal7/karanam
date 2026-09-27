@@ -16,7 +16,7 @@ export type RowKind = 'tds' | 'bonus' | 'arrears' | 'gross';
 export function rowKind(label: string): RowKind | undefined {
   const l = label.toLowerCase();
   if (/payable|projected|balance|remaining|to\s+be|net\s+tax|on\s+which|taxable|exempt|deduction\s+u\/s|professional|p\.?\s*tax\b|\bpt\b|tax\s+on\b|surcharge|cess|rebate/.test(l)) return undefined;
-  if (/\b(tds|tax\s+deducted|tax\s+recovered|income\s*tax|i\.?\s*tax|tax\s+paid|\btax\b)/.test(l)) return 'tds';
+  if (/\b(tds|tax\s+deducted|tax\s+recovered|income[\s-]*tax|i\.?\s*tax|tax\s+paid|tax\s+deduction|it\s+(deducted|deduction|recovered)|\btax\b)/.test(l)) return 'tds';
   if (/arrear/.test(l)) return 'arrears';
   if (/joining|sign[\s-]*on/.test(l)) return undefined;
   if (/bonus|variable|incentive|\bpli\b|performance\s+(pay|linked)|ex[\s-]?gratia|award|\bvpp\b|\bspp\b/.test(l)) return 'bonus';
@@ -57,6 +57,8 @@ const num = (t: string) => (/^[-–—]$/.test(t) ? 0 : parseFloat(t.replace(/,/
 /** Assigns each value to the nearest column; values far right of the last column (a Total) are dropped. */
 function byColumn(values: Cell[], cols: number[]): (number | undefined)[] {
   const out: (number | undefined)[] = cols.map(() => undefined);
+  // A single value column ("Month | TDS") takes the row's value however it's aligned.
+  if (cols.length === 1) return values.length ? [num(values[values.length - 1].text)] : out;
   const gap = cols.length > 1 ? (cols[cols.length - 1] - cols[0]) / (cols.length - 1) : 10;
   for (const v of values) {
     let best = -1;
@@ -113,7 +115,11 @@ export function parseMonthTable(text: string, fallbackFy: number, cutoff: string
       if (!kind) continue;
       const values = cells(line.slice(label.length ? line.indexOf(label) + label.length : 0), VALUE).map((v) => ({ ...v, at: v.at + (label.length ? line.indexOf(label) + label.length : 0) }));
       const positional = values.some((v) => v.at >= cols[0] - 2) && values.every((v) => v.at >= cols[0] - (cols[1] - cols[0]) * 0.6);
-      const assigned = positional ? byColumn(values, cols) : inOrder(values, cols.length);
+      let assigned = positional ? byColumn(values, cols) : inOrder(values, cols.length);
+      // Columns that don't line up with the header (a long label pushed them right): values
+      // collide or fall outside every column. A full row of values is then read in order.
+      const placed = assigned.filter((v) => v !== undefined).length;
+      if (positional && placed < Math.min(values.length, cols.length) && values.length >= cols.length) assigned = inOrder(values, cols.length);
       assigned.forEach((v, i) => put(keys[i], kind, label, v));
     }
   });
@@ -122,7 +128,7 @@ export function parseMonthTable(text: string, fallbackFy: number, cutoff: string
   // 2. Months down the side: find a header row with column names, then month rows.
   const monthRows = lines
     .map((l, i) => ({ l, i, m: /^\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?(?:[\s'’-]{0,2}(\d{4}|\d{2}))?/i.exec(l) }))
-    .filter((x) => x.m && cells(x.l, VALUE).length >= 2);
+    .filter((x) => x.m && cells(x.l.slice(x.m![0].length), VALUE).length >= 1);
   if (monthRows.length >= 3) {
     const headerLine = lines.slice(0, monthRows[0].i).reverse().find((l) => /[a-z]{3,}/i.test(l) && cells(l, VALUE).length === 0) ?? '';
     const heads = [...headerLine.matchAll(/\S+(?:\s\S+)*/g)].map((m) => ({ at: (m.index ?? 0) + m[0].length / 2, text: m[0] }));
@@ -135,5 +141,15 @@ export function parseMonthTable(text: string, fallbackFy: number, cutoff: string
       valueCols.forEach((c, i) => c.kind && put(key, c.kind, c.text, assigned[i]));
     }
   }
+  if (Object.keys(out).length) return out;
+
+  // 3. Month-amount pairs on a line under a TDS heading: "Apr 16,110  May 16,110  Jun 16,110".
+  lines.forEach((line, i) => {
+    const pairs = [...line.matchAll(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?(?:[\s'’-]{0,2}(\d{4}|\d{2}))?\s*[:=-]?\s*(\d{1,3}(?:,\d{2,3})+|\d+)/gi)];
+    if (pairs.length < 3) return;
+    const context = `${lines[i - 1] ?? ''} ${line}`;
+    if (rowKind(labelOf(line) || context) !== 'tds' && !/\b(tds|tax)\b/i.test(context)) return;
+    for (const p of pairs) put(monthKey(MON.indexOf(p[1].toLowerCase()) + 1, fy, p[2]), 'tds', 'TDS', num(p[3]));
+  });
   return out;
 }

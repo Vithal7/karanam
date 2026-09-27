@@ -154,7 +154,7 @@ export function extractFacts(text: string, kind: DocKind): Facts {
     f.leaveDays = numberBefore(flat, /leave\s+encash\w*\D{0,30}?(\d{1,3}(?:\.\d+)?)\s*days/) ?? numberBefore(flat, /(\d{1,3}(?:\.\d+)?)\s*days\D{0,20}leave\s+encash/);
     f.leaveAmount = moneyAfter(flat, /leave\s+encash\w*(\s*\([^)]*\))?/, 60);
     f.noticeRecoveryAmount = moneyAfter(flat, /notice\s+(pay\s+|period\s+)?(recovery|shortfall|buy\s*-?\s*out|deduction)(\s*\([^)]*\))?/, 60);
-    f.gratuity = moneyAfter(flat, /gratuity/, 40);
+    f.gratuity = moneyAfter(flat, /ex[\s-]?gratia|gratuity/, 40);
     f.netPayable = moneyAfter(flat, /net\s+(amount\s+)?(payable|pay|settlement|amount)/, 40);
     f.fnfPayMonth = monthAfter(flat, /(will\s+be|shall\s+be|to\s+be|was|is)\s+(paid|credited|processed|released|disbursed)\s+(on|by|in|with|along\s+with)\s+(the\s+)?/, 60);
   }

@@ -135,7 +135,7 @@ export function Uploader(props: {
             id="paste-text"
             class="text"
             rows={8}
-            placeholder={'Paste the letter\'s text, or write e.g.\nGot an offer from BP Pvt Ltd: 34.2 base (17.10 basic, 50% basic HRA, rest special), 1.8 variable. Joining 12 Nov 2026. Resigned 3 Sept, LWD 11 Nov 2026, 22 leaves at Suzlon.'}
+            placeholder={'Paste the letter\'s text, or write e.g.\nGot an offer from KV Pvt Ltd: 30 base (15 basic, 50% basic HRA, rest special), 1.6 variable. Joining 14 Nov 2026. Resigned 5 Sept, LWD 13 Nov 2026, 18 leaves at Northwind.'}
             value={pasted}
             onInput={(e) => setPasted((e.target as HTMLTextAreaElement).value)}
           />

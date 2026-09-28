@@ -6,7 +6,7 @@ const EML = [
   'From: "HR Operations" <hr.ops@sigmasystems.com>',
   'To: Priya <priya@example.com>',
   'Subject: =?UTF-8?Q?Acceptance_of_your_resignation_=E2=80=93_Sigma?=',
-  'Date: Sat, 12 Sep 2026 10:12:00 +0530',
+  'Date: Mon, 14 Sep 2026 10:12:00 +0530',
   'MIME-Version: 1.0',
   'Content-Type: multipart/mixed; boundary="outer"',
   '',
@@ -17,8 +17,8 @@ const EML = [
   'Content-Type: text/html; charset="utf-8"',
   'Content-Transfer-Encoding: quoted-printable',
   '',
-  '<p>Dear Priya,</p><p>We accept your resignation dated 12/09/2026. Your last work=',
-  'ing day will be 11th November 2026.</p><p>Sigma Systems Private Limited</p>',
+  '<p>Dear Priya,</p><p>We accept your resignation dated 14/09/2026. Your last work=',
+  'ing day will be 13th November 2026.</p><p>Sigma Systems Private Limited</p>',
   '--alt--',
   '--outer',
   'Content-Type: application/pdf; name="relieving.pdf"',
@@ -34,9 +34,9 @@ describe('resignation emails (.eml)', () => {
   const e = parseEml(EML);
   it('reads headers, decodes the HTML body and finds attachments', () => {
     expect(e.text).toMatch(/^From: "HR Operations" <hr\.ops@sigmasystems\.com>/);
-    expect(e.text).toContain('Date: 12/09/2026');
+    expect(e.text).toContain('Date: 14/09/2026');
     expect(e.text).toContain('Subject: Acceptance of your resignation – Sigma');
-    expect(e.text).toContain('Your last working day will be 11th November 2026.');
+    expect(e.text).toContain('Your last working day will be 13th November 2026.');
     expect(e.text).not.toMatch(/<p>|=\r?\n/);
     expect(e.attachments).toEqual([{ name: 'relieving.pdf', type: 'application/pdf', bytes: expect.any(Uint8Array) }]);
     expect(new TextDecoder().decode(e.attachments[0].bytes)).toBe('%PDF-1.4\n');
@@ -44,8 +44,8 @@ describe('resignation emails (.eml)', () => {
   it('is read as a resignation with its dates', () => {
     const d = docFromText(e.text, 'Resignation.eml');
     expect(d.kind).toBe('resignation');
-    expect(d.facts?.lastWorkingDay).toBe('2026-11-11');
-    expect(d.facts?.resignationDate).toBe('2026-09-12');
+    expect(d.facts?.lastWorkingDay).toBe('2026-11-13');
+    expect(d.facts?.resignationDate).toBe('2026-09-14');
     expect(d.employer).toMatch(/Sigma/);
   });
   it('dates in the Date header', () => {
@@ -57,12 +57,12 @@ describe('files picked without a telling name', () => {
   const bytes = (s: string) => new TextEncoder().encode(s);
   it('works out the type from the first bytes', async () => {
     const { sniff } = await import('../text');
-    const eml = 'Received: from mx.suzlon.com\r\nFrom: HR <hr@suzlon.com>\r\nSubject: Resignation\r\n\r\nBody';
+    const eml = 'Received: from mx.northwind.com\r\nFrom: HR <hr@northwind.com>\r\nSubject: Resignation\r\n\r\nBody';
     expect(sniff(bytes(eml), eml)).toBe('eml');
     expect(sniff(bytes('%PDF-1.7\n'), '')).toBe('pdf');
     expect(sniff(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), '')).toBe('image');
     expect(sniff(new Uint8Array([0x50, 0x4b, 3, 4]), '')).toBe('docx');
-    expect(sniff(bytes('Basic Salary 1,42,500'), 'Basic Salary 1,42,500')).toBe('text');
+    expect(sniff(bytes('Basic Salary 1,25,000'), 'Basic Salary 1,25,000')).toBe('text');
     expect(sniff(new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0, 1, 2, 3]), '')).toBeUndefined();
   });
 });

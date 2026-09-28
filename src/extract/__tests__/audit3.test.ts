@@ -12,20 +12,20 @@ import { parseText } from '../parse';
 
 const note = (t: string) => parseNote(t, 'Pasted text');
 const typed = (t: string) => docsFromText(t, 'Pasted text', true).docs;
-const SUZLON = `Suzlon Global Services Limited
-Date: 20/01/2025
+const NORTHWIND = `Northwind Global Services Limited
+Date: 22/01/2025
 Letter of Appointment
-Your date of joining is 20th January 2025.
+Your date of joining is 22nd January 2025.
 Component  ANNUAL (INR)  MONTHLY (INR)
-Basic Salary  8,10,000  67,500
-HRA  4,05,000  33,750
-Miscellaneous Allow  5,24,520  43,710
+Basic Salary  7,20,000  60,000
+HRA  3,72,000  31,000
+Miscellaneous Allow  6,49,200  54,100
 Total CTC  18,00,000`;
-const letter = () => docFromText(SUZLON, 'suzlon.pdf');
+const letter = () => docFromText(NORTHWIND, 'northwind.pdf');
 
 describe('1. a similar company name: ask before grouping or splitting', () => {
-  it('a payslip from "Suzlon Energy Limited" is asked about, and never pushes the letter out', () => {
-    const slip = docFromText('Suzlon Energy Limited\nPayslip for the month of August 2026\nBasic 67,500\nHRA 33,750\nNet Pay 1,20,000', 'aug.pdf');
+  it('a payslip from "Northwind Energy Limited" is asked about, and never pushes the letter out', () => {
+    const slip = docFromText('Northwind Energy Limited\nPayslip for the month of August 2026\nBasic 60,000\nHRA 31,000\nNet Pay 1,20,000', 'aug.pdf');
     const r = assignDocs([blankJob('New job', '2026-04-01')], [letter(), slip], 2026);
     expect(r.aside).toEqual([]);
     expect(r.employers.length).toBe(1);
@@ -34,8 +34,8 @@ describe('1. a similar company name: ask before grouping or splitting', () => {
 });
 
 describe('2. the order files come in does not matter', () => {
-  it('a note about leaving "Suzlon Energy" first, then the letter', () => {
-    const first = assignDocs([blankJob('New job', '2026-04-01')], typed('resigned from Suzlon Energy on 3 Sep 2026, LWD 11 Nov 2026'), 2026);
+  it('a note about leaving "Northwind Energy" first, then the letter', () => {
+    const first = assignDocs([blankJob('New job', '2026-04-01')], typed('resigned from Northwind Energy on 5 Sep 2026, LWD 13 Nov 2026'), 2026);
     const then = assignDocs(first.employers, [letter()], 2026);
     expect(then.employers.length + then.unassigned.length).toBe(then.unassigned.length ? 2 : 1);
     // Either one job, or the letter is asked about: never two silent jobs.
@@ -66,9 +66,9 @@ describe('4. "joining" + a date or an adverb is not a company', () => {
 
 describe('5. a company name on its own line in a note', () => {
   it('is still a note', () => {
-    expect(isNote('Offer from BP Pvt Ltd\n36 LPA, joining 12 Nov 2026')).toBe(true);
+    expect(isNote('Offer from KV Pvt Ltd\n36 LPA, joining 14 Nov 2026')).toBe(true);
     expect(isNote('Got offer from Zeta Technologies Pvt Ltd\nCTC 25 LPA\nJoining 1 Dec 2026')).toBe(true);
-    expect(isNote('i got a job offer from bp pvt ltd\n34.2 base, joining 12 Nov 2026')).toBe(true);
+    expect(isNote('i got a job offer from kv pvt ltd\n30 base, joining 14 Nov 2026')).toBe(true);
     expect(isNote('Acme Technologies Private Limited\nOffer: CTC 18 LPA, joining 1 Dec 2026.')).toBe(false);
   });
 });
@@ -115,7 +115,7 @@ describe('10. current job figures stay with the current job', () => {
 
 describe('11. a date with no year next to 1 April is asked about', () => {
   it('last day and joining keep this year, and ask', () => {
-    const n = note('offer from BP 36 LPA, joining 1st April. LWD 31st March at Suzlon');
+    const n = note('offer from KV 36 LPA, joining 1st April. LWD 31st March at Northwind');
     expect(n.exit!.facts!.yearGuess?.field).toBe('lastWorkingDay');
     expect(n.exit!.facts!.yearGuess!.options.length).toBe(2);
     expect(n.offer!.facts!.yearGuess?.field).toBe('doj');
@@ -145,25 +145,25 @@ describe('12, 14. hikes in notes', () => {
 
 describe('13. a different current CTC is a hike: it changes the breakup', () => {
   it('scales the pay and asks when', () => {
-    const d = typed('current CTC 24 LPA at Suzlon');
-    const r = applyEvents(applyDocs({ ...blankJob('Suzlon', '2025-01-20'), docs: [letter(), ...d] }, {}, bundledRules).emp, bundledRules, '2026-04');
+    const d = typed('current CTC 24 LPA at Northwind');
+    const r = applyEvents(applyDocs({ ...blankJob('Northwind', '2025-01-22'), docs: [letter(), ...d] }, {}, bundledRules).emp, bundledRules, '2026-04');
     expect(r.needs.some((x) => x.askMonth)).toBe(true);
   });
 });
 
 describe('16. pasted text is read as your words', () => {
   it('mentions of payslip, Form 16 or regards do not turn it into a document', () => {
-    const d = typed('My payslip says basic 67,500. Got offer from BP 36 LPA, joining 12 Nov 2026');
-    expect(d.some((x) => x.kind === 'offer' && x.employer === 'BP')).toBe(true);
+    const d = typed('My payslip says basic 60,000. Got offer from KV 36 LPA, joining 14 Nov 2026');
+    expect(d.some((x) => x.kind === 'offer' && x.employer === 'KV')).toBe(true);
     expect(d.some((x) => x.kind === 'payslip')).toBe(false);
     expect(typed('offer from Zeta 20 LPA, joining 1 Dec 2026. Thanks & regards')[0].fields.ctc).toBe(2000000);
   });
   it('a pasted salary table keeps its company and joining date', () => {
-    const d = typed('Offer from Zeta, joining 1 Dec 2026\nBasic 1,42,500\nHRA 71,250\nSpecial 69,450');
+    const d = typed('Offer from Zeta, joining 1 Dec 2026\nBasic 1,25,000\nHRA 62,500\nSpecial 60,700');
     const o = d.find((x) => x.kind === 'offer')!;
     expect(o.employer).toBe('Zeta');
     expect(o.doj).toBe('2026-12-01');
-    expect(o.fields.basic).toBe(142500);
+    expect(o.fields.basic).toBe(125000);
   });
 });
 
@@ -174,18 +174,18 @@ describe('17. more ways of writing it', () => {
   });
   it('company of the current job', () => {
     expect(note('Current company Infosys. offer from Zeta 20 LPA').current?.employer ?? note('Current company Infosys. offer from Zeta 20 LPA').exit?.employer).toBe('Infosys');
-    expect(note('Resigned on 3 Sep 2026 at Acme, LWD 30 Nov 2026').exit!.employer).toBe('Acme');
+    expect(note('Resigned on 5 Sep 2026 at Acme, LWD 30 Nov 2026').exit!.employer).toBe('Acme');
     expect(note('joined Acme in June 2024').current!.employer).toBe('Acme');
   });
   it('new employer', () => {
-    expect(note('New offer: BP India, 36 LPA').offer!.employer).toBe('BP India');
+    expect(note('New offer: KV India, 36 LPA').offer!.employer).toBe('KV India');
     expect(note('Starting at Zeta on 1 Dec 2026, 25 LPA').offer!.employer).toBe('Zeta');
     expect(note('Joining Zeta as Senior Engineer on 1 Dec 2026, 25 LPA').offer!.employer).toBe('Zeta');
     expect(note('Offer letter from Acme Corp received, 20 LPA').offer!.employer).toBe('Acme Corp');
   });
   it('dates', () => {
     expect(note('offer from Zeta 25 LPA, joining in December').offer!.doj?.slice(5)).toBe('12-01');
-    expect(note("offer from Zeta 25 LPA, joining 12 Nov '26").offer!.doj).toBe('2026-11-12');
+    expect(note("offer from Zeta 25 LPA, joining 14 Nov '26").offer!.doj).toBe('2026-11-14');
   });
   it('"basic 50% of ctc" with the CTC elsewhere', () => {
     const o = note('offer from Zeta 18 LPA, basic 50% of ctc').offer!;

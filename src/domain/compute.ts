@@ -79,7 +79,7 @@ const dayBeforeIso = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`) - 
 
 const dim = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
-/** Months from one day to another, both counted: 20 Jan–30 Jun 2026 = 12/31 + 5. */
+/** Months from one day to another, both counted: 20 Jan–30 Jun 2026 = 10/31 + 5. */
 export function calendarMonths(from: string, to: string): number {
   const [y1, m1, d1] = from.split('-').map(Number);
   const [y2, m2, d2] = to.split('-').map(Number);
@@ -206,15 +206,21 @@ const gratuityYears = (years: number) => Math.floor(years) + (years % 1 > 0.5 ? 
  */
 export function gratuityFor(emp: Employment, st: Structure, f: NonNullable<Employment['fnf']>) {
   const years = emp.start && emp.end ? Math.max(0, (Date.parse(emp.end) - Date.parse(emp.start)) / 86_400_000 + 1) / 365.25 : 0;
-  const qualifies = years >= GRATUITY_MIN_YEARS;
+  // Fixed-term employees get gratuity pro-rata, without the 5-year minimum (Code on Social Security).
+  const fixedTerm = !!emp.fixedTerm && years >= (GRATUITY.fixedTermMinYears ?? 1);
+  const qualifies = years >= GRATUITY_MIN_YEARS || fixedTerm;
   const { wages, label: wagesLabel } = gratuityWages(st, emp.end, emp.ctcParts?.gratuity ?? 0);
   const formula = (n: number) => Math.min(Math.round((GRATUITY.daysPerYear / GRATUITY.monthDays) * wages * n), GRATUITY.maxAmount);
   const none = { gratuity: 0, gratuityKind: 'none' as const, gratuityExempt: 0, gratuityLabel: '', serviceYears: years, gratuityPeriods: [] as GratuityPeriod[] };
   if (f.gratuityMode === 'none') return none;
   if (f.gratuity !== undefined) {
     // Tax-free: the least of what's paid, the 15/26 formula and ₹20 lakh; the rest is taxed.
-    const exempt = qualifies ? Math.min(f.gratuity, formula(gratuityYears(years)), GRATUITY_EXEMPT_CAP) : 0;
+    const exempt = qualifies ? Math.min(f.gratuity, formula(years < GRATUITY_MIN_YEARS ? years : gratuityYears(years)), GRATUITY_EXEMPT_CAP) : 0;
     return { ...none, gratuity: f.gratuity, gratuityKind: qualifies ? ('gratuity' as const) : ('exgratia' as const), gratuityExempt: exempt, gratuityLabel: 'as per your F&F slip' };
+  }
+  if (qualifies && fixedTerm && years < GRATUITY_MIN_YEARS) {
+    const amount = Math.min(Math.round((GRATUITY.daysPerYear / GRATUITY.monthDays) * wages * years), GRATUITY.maxAmount);
+    return { ...none, gratuity: amount, gratuityKind: 'gratuity' as const, gratuityExempt: Math.min(amount, GRATUITY_EXEMPT_CAP), gratuityLabel: `${GRATUITY.daysPerYear}/${GRATUITY.monthDays} × ${wagesLabel} × ${years.toFixed(2)} years, pro-rata for a fixed-term contract` };
   }
   if (qualifies) {
     const n = gratuityYears(years);

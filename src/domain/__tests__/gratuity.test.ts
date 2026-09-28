@@ -51,3 +51,17 @@ describe('wages under the Labour Codes (from 21 Nov 2025)', () => {
     expect(gratuityWages(st(50000, 25000, 25000), '2026-06-30').wages).toBe(50000);
   });
 });
+
+describe('fixed-term contracts', () => {
+  it('pro-rata gratuity from 1 year, without the 5-year minimum', () => {
+    const e = job('2025-01-01', '2026-06-30', st(40000, 20000, 20000), { fixedTerm: true });
+    const f = fnfItems(e, 2026)!;
+    expect(f.gratuityKind).toBe('gratuity');
+    const years = ((Date.parse('2026-06-30') - Date.parse('2025-01-01')) / 86_400_000 + 1) / 365.25;
+    expect(f.gratuity).toBe(Math.round((15 / 26) * 40000 * years));
+    expect(fnfItems({ ...e, fixedTerm: undefined }, 2026)!.gratuityKind).toBe('none');
+  });
+  it('under a year: nothing', () => {
+    expect(fnfItems(job('2026-01-01', '2026-06-30', st(40000, 20000, 20000), { fixedTerm: true }), 2026)!.gratuity).toBe(0);
+  });
+});

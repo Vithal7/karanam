@@ -7,19 +7,19 @@ import { parseNote } from '../note';
 
 const note = (t: string) => parseNote(t, 'Pasted text');
 const typed = (t: string) => docsFromText(t, 'Pasted text', true).docs;
-const SUZLON = `Suzlon Global Services Limited
-Date: 20/01/2025
+const NORTHWIND = `Northwind Global Services Limited
+Date: 22/01/2025
 Letter of Appointment
-Your date of joining is 20th January 2025.
+Your date of joining is 22nd January 2025.
 Component  ANNUAL (INR)  MONTHLY (INR)
-Basic Salary  8,10,000  67,500
-HRA  4,05,000  33,750
+Basic Salary  7,20,000  60,000
+HRA  3,72,000  31,000
 Total CTC  18,00,000`;
-const letter = () => docFromText(SUZLON, 'suzlon.pdf');
-const slip = (m: string) => docFromText(`Suzlon Energy Limited\nPayslip for the month of ${m} 2026\nBasic 67,500\nHRA 33,750\nNet Pay 1,20,000`, `${m}.pdf`);
+const letter = () => docFromText(NORTHWIND, 'northwind.pdf');
+const slip = (m: string) => docFromText(`Northwind Energy Limited\nPayslip for the month of ${m} 2026\nBasic 60,000\nHRA 31,000\nNet Pay 1,20,000`, `${m}.pdf`);
 
 describe('3. one question per company name', () => {
-  it('three payslips from "Suzlon Energy Limited": one question', () => {
+  it('three payslips from "Northwind Energy Limited": one question', () => {
     const r = assignDocs([blankJob('New job', '2026-04-01')], [letter(), slip('June'), slip('July'), slip('August')], 2026);
     const asked = r.unassigned.filter((d) => d.similarTo);
     expect(asked.length).toBe(3);
@@ -29,7 +29,7 @@ describe('3. one question per company name', () => {
 
 describe('4. the same name with a later joining date', () => {
   it('is not asked "same employer as itself"', () => {
-    const rejoin = docFromText(SUZLON.replace('20th January 2025', '1st December 2026').replace('20/01/2025', '01/11/2026'), 'rejoin.pdf');
+    const rejoin = docFromText(NORTHWIND.replace('22nd January 2025', '1st December 2026').replace('22/01/2025', '01/11/2026'), 'rejoin.pdf');
     const r = assignDocs([blankJob('New job', '2026-04-01')], [letter(), rejoin], 2026);
     expect(r.unassigned.filter((d) => d.similarTo)).toEqual([]);
   });
@@ -50,8 +50,8 @@ describe('5. typed text the note reader does not understand', () => {
 
 describe('6. a note never names your current job after the offer', () => {
   it('the resignation stays with the job you have', () => {
-    const r = assignDocs([blankJob('New job', '2026-04-01')], [letter(), ...typed('got offer from Zeta 30 LPA joining 12 Nov 2026. resigned on 3 Sep 2026, lwd 11 Nov 2026, 22 leaves')], 2026);
-    const suz = r.employers.find((e) => /suzlon/i.test(e.name))!;
+    const r = assignDocs([blankJob('New job', '2026-04-01')], [letter(), ...typed('got offer from Zeta 30 LPA joining 14 Nov 2026. resigned on 5 Sep 2026, lwd 13 Nov 2026, 18 leaves')], 2026);
+    const suz = r.employers.find((e) => /northwind/i.test(e.name))!;
     expect(suz.docs.some((d) => d.kind === 'resignation')).toBe(true);
   });
 });
@@ -82,13 +82,13 @@ describe('11. more wordings', () => {
     expect(note('Salary hiked by 10% from April 2026').hike!.facts!.incrementPct).toBe(0.1);
     expect(note('my salary is now 20 LPA').current!.facts!.revisedCtc ?? note('my salary is now 20 LPA').current!.fields.ctc).toBe(2000000);
     expect(note('offer from Zeta 20 LPA, Rs 50 thousand relocation').offer!.facts!.relocation!.amount).toBe(50000);
-    expect(note('Offer: BP Pvt. Ltd., 36 LPA, joining 12 Nov 2026').offer!.employer).toBe('BP Pvt. Ltd');
+    expect(note('Offer: KV Pvt. Ltd., 36 LPA, joining 14 Nov 2026').offer!.employer).toBe('KV Pvt. Ltd');
     const z = note('Zeta offer 30 LPA vs current 18 LPA');
     expect(z.offer!.employer).toBe('Zeta');
     expect(z.offer!.fields.ctc).toBe(3000000);
-    const bp = note('New job at BP from 12 Nov 2026');
-    expect(bp.offer!.employer).toBe('BP');
-    expect(bp.offer!.doj).toBe('2026-11-12');
+    const kv = note('New job at KV from 14 Nov 2026');
+    expect(kv.offer!.employer).toBe('KV');
+    expect(kv.offer!.doj).toBe('2026-11-14');
     expect(note('joined in June 2024 at 12 LPA').current!.fields.ctc).toBe(1200000);
     const a = note('appraisal: 20 LPA from Apr-26').hike!;
     expect(a.facts!.revisedCtc).toBe(2000000);
@@ -98,8 +98,8 @@ describe('11. more wordings', () => {
 
 describe('12. an offer typed in a note is never held behind "same employer?"', () => {
   it('Tata Motors offer while at Tata Steel', () => {
-    const steel = docFromText(SUZLON.replace(/Suzlon Global Services Limited/g, 'Tata Steel Limited'), 'steel.pdf');
-    const r = assignDocs([blankJob('New job', '2026-04-01')], [steel, ...typed('offer from Tata Motors 30 LPA joining 1 Dec 2026. resigned on 3 Sep 2026, LWD 30 Nov 2026')], 2026);
+    const steel = docFromText(NORTHWIND.replace(/Northwind Global Services Limited/g, 'Tata Steel Limited'), 'steel.pdf');
+    const r = assignDocs([blankJob('New job', '2026-04-01')], [steel, ...typed('offer from Tata Motors 30 LPA joining 1 Dec 2026. resigned on 5 Sep 2026, LWD 30 Nov 2026')], 2026);
     expect(r.unassigned.filter((d) => d.similarTo)).toEqual([]);
     expect(r.employers.map((e) => e.name).sort()).toEqual(['Tata Motors', 'Tata Steel Limited']);
   });
@@ -124,10 +124,10 @@ const scenario = (employers: Employment[]): Scenario => ({ fy: 2026, today: '202
 
 describe('8. comparing a later offer moves an assumed last day', () => {
   it('no unexplained gap', () => {
-    const suz = job({ id: 's', name: 'Suzlon', end: '2026-11-11', endSource: 'assumed' });
-    const bp = job({ id: 'b', name: 'BP', start: '2026-11-12', startSource: 'doc' });
+    const suz = job({ id: 's', name: 'Northwind', end: '2026-11-13', endSource: 'assumed' });
+    const kv = job({ id: 'b', name: 'KV', start: '2026-11-14', startSource: 'doc' });
     const zeta = job({ id: 'z', name: 'Zeta', start: '2027-01-01', startSource: 'doc' });
-    const { s } = withOffer(scenario([suz, bp]), zeta);
+    const { s } = withOffer(scenario([suz, kv]), zeta);
     expect(s.employers[0].end).toBe('2026-12-31');
   });
 });
@@ -135,7 +135,7 @@ describe('8. comparing a later offer moves an assumed last day', () => {
 describe('"Same employer" is remembered', () => {
   it('a later file with that name joins the job without asking', () => {
     const r = assignDocs([blankJob('New job', '2026-04-01')], [letter()], 2026);
-    const withAlias = r.employers.map((e) => ({ ...e, aliases: ['suzlon energy'] }));
+    const withAlias = r.employers.map((e) => ({ ...e, aliases: ['northwind energy'] }));
     const t = assignDocs(withAlias, [slip('September')], 2026);
     expect(t.unassigned).toEqual([]);
     expect(t.employers[0].docs.length).toBe(2);

@@ -14,11 +14,11 @@ const COLS = ['Apr-26', 'May-26', 'Jun-26', 'Jul-26', 'Aug-26', 'Sep-26', 'Oct-2
 const row = (label: string, cells: (string | number | '')[]) =>
   label.padEnd(26) + cells.map((c) => (c === '' ? '' : typeof c === 'number' ? c.toLocaleString('en-IN') : c).padStart(10)).join('');
 const SHEET = [
-  'SUZLON GLOBAL SERVICES LIMITED',
+  'NORTHWIND GLOBAL SERVICES LIMITED',
   'Date: 18/09/2026',
   'Income Tax Computation - Financial Year 2026-27',
   row('Particulars', COLS),
-  row('Basic', [67500, 67500, 67500, 82080, 82080, 82080, 82080, 82080, 82080, 82080, 82080, 82080, 938160]),
+  row('Basic', [60000, 60000, 60000, 72960, 72960, 72960, 72960, 72960, 72960, 72960, 72960, 72960, 938160]),
   row('Performance Bonus', ['', '', '', 324000, '', '', '', '', '', '', '', '', 324000]),
   row('Arrears', ['', '', '', 93933, '', '', '', '', '', '', '', '', 93933]),
   row('Professional Tax', [200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 300, 2500]),
@@ -51,7 +51,7 @@ describe('month-wise tax sheet', () => {
 });
 
 describe('months down the side', () => {
-  const T = ['Financial Year 2026-27', 'Month          Gross Salary     Bonus        TDS', 'Apr 2026       1,44,960            0     16,110', 'May 2026       1,44,960            0     16,110', 'Jun 2026       1,44,960            0     16,110', 'Jul 2026       1,76,271     3,24,000     98,450', 'Aug 2026       1,76,271            0     32,220'].join('\n');
+  const T = ['Financial Year 2026-27', 'Month          Gross Salary     Bonus        TDS', 'Apr 2026       1,45,100            0     16,110', 'May 2026       1,45,100            0     16,110', 'Jun 2026       1,45,100            0     16,110', 'Jul 2026       1,76,271     3,24,000     98,450', 'Aug 2026       1,76,271            0     32,220'].join('\n');
   it('reads each month row', () => {
     const m = parseMonthTable(T, 2026, '2026-09');
     expect(m['2026-07'].tds).toBe(98450);
@@ -70,23 +70,23 @@ describe('pasted text without column alignment', () => {
 
 describe('payslips record their month', () => {
   it('TDS and bonus paid that month', () => {
-    const d = docFromText('Salary Slip for the month of July 2026\nEarnings Amount Deductions Amount\nBasic 82,080 Income Tax 98,450\nPerformance Bonus 3,24,000 Professional Tax 200', 'payslip-jul.pdf');
+    const d = docFromText('Salary Slip for the month of July 2026\nEarnings Amount Deductions Amount\nBasic 72,960 Income Tax 98,450\nPerformance Bonus 3,24,000 Professional Tax 200', 'payslip-jul.pdf');
     expect(d.kind).toBe('payslip');
     expect(d.facts?.monthly?.['2026-07']).toEqual({ tds: 98450, items: [{ label: 'Variable pay', amount: 324000, kind: 'bonus' }] });
   });
 });
 
 describe('actuals drive the past', () => {
-  const sheet = docFromText(SHEET, 'Suzlon Tax Computation.pdf');
-  const e0 = { ...blankJob('Suzlon', '2025-01-20'), start: '2025-01-20', startSource: 'doc' as const, end: '2026-11-01', endSource: 'user' as const };
-  e0.structure = { ...e0.structure, basic: 67500, hra: 33750, special: 43710 };
-  e0.revisions = [{ from: '2026-07', structure: { ...e0.structure, basic: 82080, hra: 41040, special: 53151 } }];
+  const sheet = docFromText(SHEET, 'Northwind Tax Computation.pdf');
+  const e0 = { ...blankJob('Northwind', '2025-01-22'), start: '2025-01-22', startSource: 'doc' as const, end: '2026-11-01', endSource: 'user' as const };
+  e0.structure = { ...e0.structure, basic: 60000, hra: 31000, special: 54100 };
+  e0.revisions = [{ from: '2026-07', structure: { ...e0.structure, basic: 72960, hra: 41040, special: 53151 } }];
   const e = applyEvents(applyDocs({ ...e0, docs: [sheet] }, {}, bundledRules).emp, bundledRules, '2026-04').emp;
 
   it('keeps recorded TDS per month and adds the recorded bonus', () => {
     expect(e.tdsKnown['2026-07']).toBe(98450);
     expect(e.oneTimes.find((o) => o.month === '2026-07' && o.label === 'Performance Bonus')?.amount).toBe(324000);
-    expect(needsPrevVariable({ ...e, variable: { annual: 360000, payoutPct: 1, prorate: false, month: '' } }, 2026)).toBe(false);
+    expect(needsPrevVariable({ ...e, variable: { annual: 240000, payoutPct: 1, prorate: false, month: '' } }, 2026)).toBe(false);
   });
 
   it('uses recorded arrears instead of calculating them', () => {
@@ -108,7 +108,7 @@ describe('actuals drive the past', () => {
 
 describe("last year's variable pay", () => {
   it('asks when nothing recorded it', () => {
-    const e = { ...blankJob('Suzlon', '2025-01-20'), start: '2025-01-20', variable: { annual: 360000, payoutPct: 1, prorate: false, month: '' } };
+    const e = { ...blankJob('Northwind', '2025-01-22'), start: '2025-01-22', variable: { annual: 240000, payoutPct: 1, prorate: false, month: '' } };
     expect(needsPrevVariable(e, 2026)).toBe(true);
     expect(needsPrevVariable({ ...e, prevVariable: 'no' }, 2026)).toBe(false);
     expect(needsPrevVariable({ ...e, start: '2026-05-01' }, 2026)).toBe(false);
@@ -139,7 +139,7 @@ describe('more TDS layouts', () => {
 describe('TDS typed in month by month', () => {
   it('wins over the files and survives the year-to-date spread', () => {
     const st = initialState();
-    const a = { ...blankJob('A', '2025-01-20'), start: '2025-01-20', end: '2026-11-01', tdsKnown: { '2026-04': 10_000, '2026-05': 10_000 }, tdsManual: { '2026-05': 12_000, '2026-06': 11_000 } };
+    const a = { ...blankJob('A', '2025-01-22'), start: '2025-01-22', end: '2026-11-01', tdsKnown: { '2026-04': 10_000, '2026-05': 10_000 }, tdsManual: { '2026-05': 12_000, '2026-06': 11_000 } };
     const b = { ...blankJob('B', '2026-11-02'), start: '2026-11-02' };
     const s = { ...st.scenario, fy: 2026, today: '2026-09-27', employers: [a, b] };
     const eff = effectiveScenario({ ...st, scenario: s, tdsSoFar: {} });
@@ -150,7 +150,7 @@ describe('TDS typed in month by month', () => {
 });
 
 describe('a payroll tax computation with off-cycle rows and a summary below', () => {
-  // Same shape as a real Suzlon sheet: months as "April-2026", TDS on its own row, an all-zero
+  // Same shape as a real Northwind sheet: months as "April-2026", TDS on its own row, an all-zero
   // "Off Cycle TDS Deduction" row after it, and a summary that repeats labels with one figure.
   const W = 36;
   const row = (label: string, cells: string[]) => `  ${label.padEnd(60)}${cells.map((c) => c.padStart(W)).join('')}`;
@@ -159,9 +159,9 @@ describe('a payroll tax computation with off-cycle rows and a summary below', ()
   const T = [
     'Income Tax Computation For FY 2026-27',
     row('Particulars', heads),
-    row('Basic Salary', ['67,500', '67,500', '67,500', '82,080', '82,080', '82,080', '82,080', '30,096', ...zeros(4), '5,60,916']),
+    row('Basic Salary', ['60,000', '60,000', '60,000', '72,960', '72,960', '72,960', '72,960', '30,096', ...zeros(4), '5,60,916']),
     row('Total Extra Payments', ['0', '0', '0', '4,01,523', ...zeros(8), '4,01,523']),
-    row('Gross Salary(A)', ['1,44,960', '1,44,960', '1,44,960', '5,77,736', '1,76,213', '1,76,213', '1,76,213', '64,611', ...zeros(4), '16,05,866']),
+    row('Gross Salary(A)', ['1,45,100', '1,45,100', '1,45,100', '5,77,736', '1,76,213', '1,76,213', '1,76,213', '64,611', ...zeros(4), '16,05,866']),
     row('Professional Tax', ['200', '200', '200', '200', '200', '200', '200', '200', ...zeros(4), '1,600']),
     row('TDS', ['11,518', '11,518', '11,518', '1,19,597', '18,019', ...zeros(7), '1,72,170']),
     row('Total Deductions(B)', ['13,518', '13,518', '13,518', '1,21,597', '20,019', '2,000', '2,000', '2,000', ...zeros(4), '1,88,170']),

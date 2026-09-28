@@ -70,7 +70,7 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
 }
 
 /**
- * One file's records. A note you typed ("got an offer from BP... resigned on 3rd Sept, LWD 11
+ * One file's records. A note you typed ("got an offer from KV... resigned on 5th Sept, LWD 11
  * Nov") becomes the new offer and the exit from your current job; anything else is one record.
  */
 export function docsFromText(text: string, name: string, typed = false): { docs: DocRecord[]; alternatives: DocRecord[]; warnings?: string[] } {
@@ -118,7 +118,7 @@ const compact = (k: string) => k.replace(/\s+/g, '');
 const initials = (k: string) => k.split(' ').map((w) => w[0]).join('');
 /** Same company, as two letters name it: the same name once "Pvt Ltd", "Technologies" and the like are dropped. */
 const matches = (a: string, keys: Set<string>) => [...keys].some((k) => k === a || compact(k) === compact(a));
-/** A name you typed may be short ("Suzlon" for Suzlon Energy): it matches the start of a full name. */
+/** A name you typed may be short ("Northwind" for Northwind Energy): it matches the start of a full name. */
 const matchesTyped = (a: string, keys: Set<string>) => matches(a, keys) || [...keys].some((k) => k.startsWith(`${a} `) || a.startsWith(`${k} `) || prefixOf(compact(k), compact(a)));
 /** One name runs on from the other ("acme" -> "acmesoftware"): only for names long enough to mean something. */
 const prefixOf = (x: string, y: string) => Math.min(x.length, y.length) >= 5 && (x.startsWith(y) || y.startsWith(x));
@@ -235,12 +235,12 @@ export function assignDocs(
   const ordered = [...docs].sort((a, b) => rank(a) - rank(b) || (docWhen(a) ?? '').localeCompare(docWhen(b) ?? ''));
   for (const d of ordered) {
     let key = companyKey(d.employer);
-    // A name typed in a note may be short ("Suzlon Energy" for the letter's full name), whichever came first.
+    // A name typed in a note may be short ("Northwind Energy" for the letter's full name), whichever came first.
     const matchFor = (e: Employment) => (d.employerWeak ? matchesWeak : d.employerTyped || e.docs.some((x) => x.employerTyped) ? matchesTyped : matches);
     // Two offers with joining dates far apart are two jobs, whatever their names.
     const sameStart = (e: Employment) => d.kind !== 'offer' || !d.doj || !e.docs.some((x) => x.kind === 'offer' && x.doj && Math.abs(daysApart(x.doj, d.doj!)) > 45);
     let target = key ? jobs.find((e) => matchFor(e)(key, jobKeys(e)) && sameStart(e)) : undefined;
-    // A close name ("Suzlon Energy Limited" for "Suzlon Global Services Limited"): the same employer
+    // A close name ("Northwind Energy Limited" for "Northwind Global Services Limited"): the same employer
     // after a merger, rename or internal transfer, or a different job? You say.
     // Not for a name you typed (you said which company), nor the very same name (a re-joining letter).
     if (!target && key && !d.employerWeak && !d.employerTyped && !d.typed) {

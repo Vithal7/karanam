@@ -49,9 +49,9 @@ Total CTC  12,00,000`);
 
 describe('2. joining and joined dates in notes', () => {
   it('the paste box example gets its joining date', () => {
-    const n = note('Got an offer from BP Pvt Ltd: 34.2 base (17.10 basic, 50% basic HRA, rest special), 1.8 variable. Joining 12 Nov 2026. Resigned 3 Sept, LWD 11 Nov 2026, 22 leaves at Suzlon.');
-    expect(n.offer!.doj).toBe('2026-11-12');
-    expect(n.exit!.facts!.lastWorkingDay).toBe('2026-11-11');
+    const n = note('Got an offer from KV Pvt Ltd: 30 base (15 basic, 50% basic HRA, rest special), 1.6 variable. Joining 14 Nov 2026. Resigned 5 Sept, LWD 13 Nov 2026, 18 leaves at Northwind.');
+    expect(n.offer!.doj).toBe('2026-11-14');
+    expect(n.exit!.facts!.lastWorkingDay).toBe('2026-11-13');
   });
   it('other ways of saying it', () => {
     expect(note('offer from Zeta 20 LPA, joining 1st dec 2026').offer!.doj).toBe('2026-12-01');
@@ -79,7 +79,7 @@ describe('3. a pasted hike updates the job, it is not a new one', () => {
   });
   it('an offer with no company or date never pushes a real job out', () => {
     const suz = docFromText(
-      `Suzlon Global Services Limited\nDate: 20/01/2025\nLetter of Appointment\nYour date of joining is 20th January 2025.\nComponent  ANNUAL (INR)  MONTHLY (INR)\nBasic Salary  8,10,000  67,500\nHRA  4,05,000  33,750\nTotal CTC  18,00,000`,
+      `Northwind Global Services Limited\nDate: 22/01/2025\nLetter of Appointment\nYour date of joining is 22nd January 2025.\nComponent  ANNUAL (INR)  MONTHLY (INR)\nBasic Salary  7,20,000  60,000\nHRA  3,72,000  31,000\nTotal CTC  18,00,000`,
       'suz.pdf',
     );
     const r = assignDocs([blankJob('New job', '2026-04-01')], [suz, ...docsFromText('20 LPA package', 'Pasted text').docs], 2026);
@@ -116,7 +116,7 @@ describe('6. similar names are different companies', () => {
 
 describe('7. letters and HR emails are not notes', () => {
   it('an HR email', () => expect(isNote('From: hr@zeta.com\nSubject: Offer\nHi Ravi, we are happy to offer you CTC: 18 LPA. Thanks, Priya')).toBe(false));
-  it('a relieving letter', () => expect(isNote('To whom it may concern\nThis is to certify that Ravi worked with us; his last working day was 11 Nov 2026.')).toBe(false));
+  it('a relieving letter', () => expect(isNote('To whom it may concern\nThis is to certify that Ravi worked with us; his last working day was 13 Nov 2026.')).toBe(false));
   it('a short offer letter with a letterhead', () => expect(isNote('Acme Technologies Private Limited\nOffer: CTC 18 LPA, joining 1 Dec 2026.\nWarm wishes')).toBe(false));
 });
 
@@ -128,7 +128,7 @@ describe('10-13. notes: current CTC, fixed pay, bonus kinds, annual figures', ()
     const e = build('offer from Zeta: fixed 25L, variable 3L, joining 1 Dec 2026');
     expect(e.ctc).toBe(2800000);
     expect(e.structure.basic).toBe(Math.round(2500000 / 12 / 2));
-    const f = build('offer from Zeta: CTC 34.2 lakhs, fixed 30 lakhs');
+    const f = build('offer from Zeta: CTC 30 lakhs, fixed 30 lakhs');
     expect(f.structure.basic).toBe(125000);
     expect(note('offer from Zeta: 25 LPA fixed + 3 LPA variable').offer!.fields.ctc).toBe(2800000);
   });
@@ -205,8 +205,8 @@ describe('16, 22. PF on part months, and a fully unpaid month', () => {
   it('PF stays at the cap while earned basic is above the ceiling', () => {
     const r = compute(scenario([job({ lopDays: { '2026-06': 10 } })]));
     expect(r.employers[0].lines.find((l) => l.month === '2026-06')!.epf).toBe(1800);
-    const bp = compute(scenario([job({ start: '2026-11-12', structure: { ...job().structure, basic: 142500 } })]));
-    expect(bp.employers[0].lines.find((l) => l.month === '2026-11')!.epf).toBe(3000);
+    const kv = compute(scenario([job({ start: '2026-11-14', structure: { ...job().structure, basic: 125000 } })]));
+    expect(kv.employers[0].lines.find((l) => l.month === '2026-11')!.epf).toBe(3000);
   });
   it('a month with every day unpaid still shows, at ₹0', () => {
     const r = compute(scenario([job({ lopDays: { '2026-07': 31 } })]));
@@ -246,7 +246,7 @@ describe('9, 23. who is asked what', () => {
 
 describe('15. joining next April keeps this year', () => {
   it('while your current job runs, the year stays', () => {
-    expect(fyFor('2026-09-27', [{ start: '2025-01-20' }, { start: '2027-04-05' }])).toBe(2026);
+    expect(fyFor('2026-09-27', [{ start: '2025-01-22' }, { start: '2027-04-05' }])).toBe(2026);
     expect(fyFor('2026-09-27', [{ start: '2027-04-05' }])).toBe(2027);
   });
 });

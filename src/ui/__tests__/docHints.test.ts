@@ -9,7 +9,7 @@ const job = (name: string, start: string, end: string, docs: DocRecord[], extra:
   name,
   start,
   end,
-  structure: { basic: 67500, hra: 33750, special: 43710, others: [], epfMode: 'statutory', epf: 0, pt: 200, npsPct: 0, npsInGross: false },
+  structure: { basic: 60000, hra: 31000, special: 54100, others: [], epfMode: 'statutory', epf: 0, pt: 200, npsPct: 0, npsInGross: false },
   revisions: [],
   oneTimes: [],
   recoveries: [],
@@ -23,7 +23,7 @@ const scenario = (employers: Employment[]): Scenario => ({ fy: 2026, today: '202
 
 describe('documents that would help', () => {
   it('an old letter plus a new offer: ask for the latest hike, a payslip and the resignation email', () => {
-    const s = scenario([job('Suzlon', '2025-01-20', '2026-11-11', [doc('offer', '2025-01-10', '2025-01-20')], { endSource: 'assumed' }), job('BP', '2026-11-12', '', [doc('offer', '2026-10-15', '2026-11-12')])]);
+    const s = scenario([job('Northwind', '2025-01-22', '2026-11-13', [doc('offer', '2025-01-10', '2025-01-22')], { endSource: 'assumed' }), job('KV', '2026-11-14', '', [doc('offer', '2026-10-15', '2026-11-14')])]);
     expect(docHints(s, 0).map((h) => h.kind)).toEqual(['appraisal', 'payslip', 'resignation']);
     expect(docHints(s, 1)).toEqual([]);
   });

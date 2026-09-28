@@ -44,13 +44,13 @@ describe('hike with arrears', () => {
 });
 
 describe('F&F options', () => {
-  const base = job('S', '2025-01-01', '2026-11-11', 82080, { fnf: { leaveDays: 22, noticeDaysRecovered: 21, clawback: 50000, penalty: 10000, gratuity: 0 } });
+  const base = job('S', '2025-01-01', '2026-11-13', 72960, { fnf: { leaveDays: 18, noticeDaysRecovered: 21, clawback: 50000, penalty: 10000, gratuity: 0 } });
   it('leave encashment rate choices', () => {
-    expect(fnfItems(base, 2026)!.leaveEncashment).toBe(60192);
-    expect(fnfItems({ ...base, fnf: { ...base.fnf!, leaveBasis: 'basic26' } }, 2026)!.leaveEncashment).toBe(Math.round((82080 / 26) * 22));
-    expect(fnfItems({ ...base, fnf: { ...base.fnf!, leaveBasis: 'gross30' } }, 2026)!.leaveEncashment).toBe(Math.round((164160 / 30) * 22));
-    expect(fnfItems({ ...base, fnf: { ...base.fnf!, leaveBasis: 'custom', leaveRate: 3000 } }, 2026)!.leaveEncashment).toBe(66000);
-    expect(fnfItems(base, 2026)!.leaveRateLabel).toBe('basic ₹82,080 ÷ 30');
+    expect(fnfItems(base, 2026)!.leaveEncashment).toBe(43776);
+    expect(fnfItems({ ...base, fnf: { ...base.fnf!, leaveBasis: 'basic26' } }, 2026)!.leaveEncashment).toBe(Math.round((72960 / 26) * 18));
+    expect(fnfItems({ ...base, fnf: { ...base.fnf!, leaveBasis: 'gross30' } }, 2026)!.leaveEncashment).toBe(Math.round((145920 / 30) * 18));
+    expect(fnfItems({ ...base, fnf: { ...base.fnf!, leaveBasis: 'custom', leaveRate: 3000 } }, 2026)!.leaveEncashment).toBe(54000);
+    expect(fnfItems(base, 2026)!.leaveRateLabel).toBe('basic ₹72,960 ÷ 30');
   });
   it('F&F slip amounts win over the calculation', () => {
     const f = fnfItems({ ...base, fnf: { ...base.fnf!, leaveAmount: 59000, noticeAmount: 50000 } }, 2026)!;
@@ -59,26 +59,26 @@ describe('F&F options', () => {
     expect(f.leaveFromSlip).toBe(true);
   });
   it('notice recovery on basic or gross', () => {
-    expect(fnfItems(base, 2026)!.noticeRecovery).toBe(57456);
-    expect(fnfItems({ ...base, fnf: { ...base.fnf!, noticeBasis: 'gross' } }, 2026)!.noticeRecovery).toBe(Math.round((164160 / 30) * 21));
+    expect(fnfItems(base, 2026)!.noticeRecovery).toBe(51072);
+    expect(fnfItems({ ...base, fnf: { ...base.fnf!, noticeBasis: 'gross' } }, 2026)!.noticeRecovery).toBe(Math.round((145920 / 30) * 21));
   });
   it('pro-rata last month', () => {
-    expect(fnfItems(base, 2026)!.lastMonthFactor).toBeCloseTo(11 / 30, 6);
+    expect(fnfItems(base, 2026)!.lastMonthFactor).toBeCloseTo(13 / 30, 6);
   });
 });
 
 describe('moving jobs', () => {
-  const S = job('S', '2019-01-01', '2026-11-11', 82080, {
-    fnf: { leaveDays: 22, noticeDaysRecovered: 21, clawback: 50000, penalty: 10000, gratuity: 300000, payMonth: '2026-12' },
+  const S = job('S', '2019-01-01', '2026-11-13', 72960, {
+    fnf: { leaveDays: 18, noticeDaysRecovered: 21, clawback: 50000, penalty: 10000, gratuity: 300000, payMonth: '2026-12' },
   });
-  const A = job('A', '2026-11-12', '', 142500, { form12B: 'second', buyout: { mode: 'cap', cap: 100000, includesClawback: true } });
+  const A = job('A', '2026-11-14', '', 125000, { form12B: 'second', buyout: { mode: 'cap', cap: 100000, includesClawback: true } });
   const s: Scenario = { fy: 2026, today: '2026-04-01', settings: { thirtyDayMonth: true, nextFyHike: 0 }, employers: [S, A] };
   const r = compute(s);
 
   it('caps the buyout', () => {
     const f = fnfItems(S, 2026)!;
-    expect(buyoutAmount(f, A, S)).toEqual({ amount: 100000, claimed: 57456 + 50000 });
-    expect(buyoutAmount(f, { ...A, buyout: { mode: 'actuals' } }, S).amount).toBe(57456);
+    expect(buyoutAmount(f, A, S)).toEqual({ amount: 100000, claimed: 51072 + 50000 });
+    expect(buyoutAmount(f, { ...A, buyout: { mode: 'actuals' } }, S).amount).toBe(51072);
     expect(buyoutAmount(f, { ...A, buyout: { mode: 'none' } }, S).amount).toBe(0);
     const paid = r.employers[1].lines.flatMap((l) => l.oneTimes).find((o) => o.kind === 'buyout')!;
     expect(paid.amount).toBe(100000);
@@ -88,7 +88,7 @@ describe('moving jobs', () => {
     const dec = r.employers[0].lines.find((l) => l.month === '2026-12')!;
     expect(dec.factor).toBe(0);
     expect(dec.oneTimes.map((o) => o.label)).toEqual(['Leave encashment', 'Gratuity']);
-    expect(dec.recoveries).toBe(57456 + 50000 + 10000);
+    expect(dec.recoveries).toBe(51072 + 50000 + 10000);
   });
 
   it('keeps gratuity out of taxable income', () => {
@@ -98,16 +98,16 @@ describe('moving jobs', () => {
 });
 
 describe('payroll before it knows you are leaving', () => {
-  // Earning ₹1.76L/month from Apr, leaving 1 Nov, resignation not handed in yet.
-  const S = job('S', '2025-01-06', '2026-11-01', 82080, { tdsKnown: { '2026-04': 16110, '2026-05': 16110, '2026-06': 16110, '2026-07': 32220, '2026-08': 32220 } });
-  const L = job('L', '2026-11-02', '', 142500, { form12B: 'second' });
+  // Earning ₹1.46L/month from Apr, leaving 1 Nov, resignation not handed in yet.
+  const S = job('S', '2025-01-06', '2026-11-01', 72960, { tdsKnown: { '2026-04': 16110, '2026-05': 16110, '2026-06': 16110, '2026-07': 32220, '2026-08': 32220 } });
+  const L = job('L', '2026-11-02', '', 125000, { form12B: 'second' });
   const s: Scenario = { fy: 2026, today: '2026-09-27', settings: { thirtyDayMonth: false, nextFyHike: 0 }, employers: [S, L] };
   const r = compute(s);
   const sep = r.employers[0].stage.find((x) => x.month === '2026-09')!;
 
   it('projects a full year and spreads tax over the months to March', () => {
     expect(sep.monthsLeft).toBe(7);
-    expect(sep.projectedIncome).toBeCloseTo(12 * 164160, 0);
+    expect(sep.projectedIncome).toBeCloseTo(12 * 145920, 0);
     expect(sep.tds).toBeGreaterThan(0);
   });
 
@@ -120,7 +120,7 @@ describe('payroll before it knows you are leaving', () => {
 });
 
 describe('gratuity and ex gratia', () => {
-  const base = job('S', '2025-01-20', '2026-11-01', 82080, { fnf: { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0, exGratia: true }, ctcParts: { gratuity: 3240 } });
+  const base = job('S', '2025-01-22', '2026-11-01', 72960, { fnf: { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0, exGratia: true }, ctcParts: { gratuity: 3100 } });
   it('under 5 years, ex gratia only when your employer pays it', () => {
     const f = fnfItems({ ...base, fnf: { ...base.fnf!, exGratia: undefined } }, 2026)!;
     expect(f.gratuity).toBe(0);
@@ -129,37 +129,37 @@ describe('gratuity and ex gratia', () => {
   it('under 5 years: ex gratia at the CTC gratuity rate, prorated, taxable', () => {
     const f = fnfItems(base, 2026)!;
     expect(f.gratuityKind).toBe('exgratia');
-    expect(f.gratuity).toBe(Math.round(3240 * (12 / 31 + 21 + 1 / 30)));
+    expect(f.gratuity).toBe(Math.round(3100 * (10 / 31 + 21 + 1 / 30)));
     expect(f.gratuityExempt).toBe(0);
     expect(f.gratuityLabel).toMatch(/\/month × 21\.4 months/);
   });
   it('ex gratia follows the rate in force: joining rate until the hike, the new rate after', () => {
-    const old = { ...base.structure, basic: 67500 };
-    const emp = { ...base, structure: old, ctcParts: { gratuity: 3240 }, revisions: [{ from: '2026-07', payoutMonth: '2026-08', structure: { ...old, basic: 82080 } }] };
+    const old = { ...base.structure, basic: 60000 };
+    const emp = { ...base, structure: old, ctcParts: { gratuity: 3100 }, revisions: [{ from: '2026-07', payoutMonth: '2026-08', structure: { ...old, basic: 72960 } }] };
     const f = fnfItems(emp, 2026)!;
     expect(f.gratuityPeriods.map((p) => [p.from, p.to, p.monthly])).toEqual([
-      ['2025-01-20', '2026-06-30', 3240],
-      ['2026-07-01', '2026-11-01', 3940],
+      ['2025-01-22', '2026-06-30', 3100],
+      ['2026-07-01', '2026-11-01', 3770],
     ]);
     expect(f.gratuity).toBe(Math.round(f.gratuityPeriods.reduce((a, p) => a + p.monthly * p.months, 0)));
     // A rate stated in the appraisal letter wins over scaling.
     const given = fnfItems({ ...emp, revisions: [{ ...emp.revisions[0], gratuity: 4000 }] }, 2026)!;
     expect(given.gratuityPeriods[1].monthly).toBe(4000);
-    // Your workbook: ((12/31)+17) x 3,240 + ((11/30)+4) x 4,387 for a last day of 11 Nov 2026.
-    const wb = fnfItems({ ...emp, end: '2026-11-11', revisions: [{ ...emp.revisions[0], gratuity: 4387 }] }, 2026)!;
-    expect(wb.gratuity).toBe(Math.round((12 / 31 + 17) * 3240 + (11 / 30 + 4) * 4387));
+    // A payroll sheet's formula: ((10/31)+17) x 3,100 + ((13/30)+4) x 4,197 for a last day of 13 Nov 2026.
+    const wb = fnfItems({ ...emp, end: '2026-11-13', revisions: [{ ...emp.revisions[0], gratuity: 4197 }] }, 2026)!;
+    expect(wb.gratuity).toBe(Math.round((10 / 31 + 17) * 3100 + (13 / 30 + 4) * 4197));
   });
   it('5+ years (4 years 240 days counts): 15/26 x basic x years, exempt', () => {
     const f = fnfItems({ ...base, start: '2021-03-01' }, 2026)!;
     expect(f.gratuityKind).toBe('gratuity');
-    expect(f.gratuity).toBe(Math.round((15 / 26) * 82080 * 6));
+    expect(f.gratuity).toBe(Math.round((15 / 26) * 72960 * 6));
     expect(f.gratuityExempt).toBe(f.gratuity);
   });
   it('can be switched off', () => {
     expect(fnfItems({ ...base, fnf: { ...base.fnf!, gratuityMode: 'none' } }, 2026)!.gratuity).toBe(0);
   });
   it('ex gratia is taxed as salary', () => {
-    const s: Scenario = { fy: 2026, today: '2026-04-01', settings: { thirtyDayMonth: false, nextFyHike: 0 }, employers: [base, job('L', '2026-11-02', '', 142500)] };
+    const s: Scenario = { fy: 2026, today: '2026-04-01', settings: { thirtyDayMonth: false, nextFyHike: 0 }, employers: [base, job('L', '2026-11-02', '', 125000)] };
     const r = compute(s);
     const nov = r.employers[0].lines.find((l) => l.month === '2026-11')!;
     const eg = nov.oneTimes.find((o) => /Ex gratia/.test(o.label))!;
@@ -168,17 +168,17 @@ describe('gratuity and ex gratia', () => {
 });
 
 describe('EPF ceiling rise inside a fixed CTC', () => {
-  const statutory = { ...st(82080), epfMode: 'statutory' as const };
+  const statutory = { ...st(72960), epfMode: 'statutory' as const };
   const s = (e: Employment): Scenario => ({ fy: 2026, today: '2026-09-27', employers: [e], settings: { thirtyDayMonth: false, nextFyHike: 0 } });
   it('employer PF in the CTC: the extra PF comes out of the allowance from Sep 2026', () => {
-    const r = compute(s(job('S', '2025-01-20', '', 82080, { structure: statutory, ctcParts: { employerPf: 1800 } })));
+    const r = compute(s(job('S', '2025-01-22', '', 72960, { structure: statutory, ctcParts: { employerPf: 1800 } })));
     const aug = r.employers[0].lines.find((l) => l.month === '2026-08')!;
     const sep = r.employers[0].lines.find((l) => l.month === '2026-09')!;
     expect([aug.epf, sep.epf]).toEqual([1800, 3000]);
     expect(aug.special - sep.special).toBe(1200);
   });
   it('employer PF not in the CTC: the allowance stays', () => {
-    const r = compute(s(job('S', '2025-01-20', '', 82080, { structure: statutory })));
+    const r = compute(s(job('S', '2025-01-22', '', 72960, { structure: statutory })));
     const lines = r.employers[0].lines;
     expect(lines.find((l) => l.month === '2026-09')!.special).toBe(lines.find((l) => l.month === '2026-08')!.special);
   });

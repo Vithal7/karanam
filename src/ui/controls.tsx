@@ -31,7 +31,7 @@ const parseNum = (s: string) => {
   return Number.isFinite(n) ? n : NaN;
 };
 
-/** A rupee input that accepts "1,42,500" and shows the formatted figure while you type. */
+/** A rupee input that accepts "1,25,000" and shows the formatted figure while you type. */
 export function Money(props: {
   value: number;
   onChange: (v: number) => void;

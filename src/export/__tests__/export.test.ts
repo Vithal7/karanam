@@ -16,8 +16,8 @@ const s: Scenario = {
   today: '2026-09-27',
   settings: { thirtyDayMonth: false, nextFyHike: 0.1 },
   employers: [
-    job('Suzlon', '2025-01-20', '2026-11-11', st(82080, 43973), { tdsKnown: { '2026-04': 11518 }, fnf: { leaveDays: 22, noticeDaysRecovered: 21, clawback: 0 }, ctcParts: { gratuity: 3240 } }),
-    job('Resilient', '2026-11-12', '', st(142500, 69450), { oneTimes: [{ id: 'joining', label: 'Joining bonus', kind: 'joining', amount: 150000, month: '2027-02', taxable: true }] }),
+    job('Northwind', '2025-01-22', '2026-11-13', st(72960, 43973), { tdsKnown: { '2026-04': 11518 }, fnf: { leaveDays: 18, noticeDaysRecovered: 21, clawback: 0 }, ctcParts: { gratuity: 3100 } }),
+    job('Resilient', '2026-11-14', '', st(125000, 60700), { oneTimes: [{ id: 'joining', label: 'Joining bonus', kind: 'joining', amount: 150000, month: '2027-02', taxable: true }] }),
   ],
 };
 const r = compute(s, bundledRules);
@@ -42,7 +42,7 @@ describe('download: a sheet per financial year', () => {
     expect(titles).toEqual(expect.arrayContaining(['Income and deductions', 'Tax by slab (new regime)', 'Tax and TDS']));
     const tax = sheets[0].sections.find((x) => x.title === 'Tax and TDS')!;
     expect(tax.rows.find((x) => x[0] === 'Tax payable for the year')?.[1]).toBe(Math.round(r.filing.total));
-    expect(sheets[0].sections.some((x) => x.title.startsWith('F&F from Suzlon'))).toBe(true);
+    expect(sheets[0].sections.some((x) => x.title.startsWith('F&F from Northwind'))).toBe(true);
   });
   it('writes a real .xlsx with both sheets', () => {
     const files = unzipSync(toXlsx(sheets));
@@ -50,7 +50,7 @@ describe('download: a sheet per financial year', () => {
     expect(strFromU8(files['xl/worksheets/sheet1.xml'])).toContain('Month by month');
   });
   it('writes a PDF', () => {
-    const pdf = toPdf(sheets, 'Suzlon, Resilient');
+    const pdf = toPdf(sheets, 'Northwind, Resilient');
     expect(new TextDecoder().decode(pdf.slice(0, 5))).toBe('%PDF-');
     expect(pdf.length).toBeGreaterThan(5000);
   });

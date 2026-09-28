@@ -225,6 +225,7 @@ const serviceYears = (e: Employment) => (e.start && e.end ? (Date.parse(e.end) -
 /** Leaving before 5 years with a gratuity rate in the CTC: is ex gratia paid in its place? */
 export const needsExGratia = (e: Employment, leaving: boolean) =>
   leaving &&
+  !e.fixedTerm &&
   // Years of service need a real joining date: ask for it first.
   e.startSource !== 'default' &&
   e.startSource !== 'approx' &&

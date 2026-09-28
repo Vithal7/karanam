@@ -35,14 +35,14 @@ const job = (id: string, start: string, end: string, basic: number, extra: Parti
 
 describe('EPF wage ceiling by date', () => {
   it('is ₹1,800 before Sep 2026 and ₹3,000 from Sep 2026 on a large basic', () => {
-    const s = st(82080);
+    const s = st(72960);
     expect(epfFor(s, '2026-08', bundledRules)).toBe(1800);
     expect(epfFor(s, '2026-09', bundledRules)).toBe(3000);
     expect(epfFor(s, '2027-03', bundledRules)).toBe(3000);
   });
   it('is 12% of basic below the ceiling, and uncapped for full-basic employers', () => {
     expect(epfFor(st(20000), '2026-10', bundledRules)).toBe(2400);
-    expect(epfFor(st(82080, 'fullBasic'), '2026-10', bundledRules)).toBeCloseTo(9849.6, 5);
+    expect(epfFor(st(72960, 'fullBasic'), '2026-10', bundledRules)).toBeCloseTo(8755.2, 5);
   });
 });
 

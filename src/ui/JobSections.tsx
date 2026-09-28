@@ -254,7 +254,8 @@ export function ExitEditor(props: { emp: Employment; fy: number; thirty: boolean
           ))}
         </div>
       )}
-      {items && items.serviceYears < 4 + 240 / 365 ? (
+      <Toggle checked={!!e.fixedTerm} onChange={(v) => props.onChange({ ...e, fixedTerm: v || undefined })} label="A fixed-term contract (gratuity is pro-rata from 1 year, without the 5-year minimum)" />
+      {items && items.serviceYears < 4 + 240 / 365 && !e.fixedTerm ? (
         <Toggle checked={!!f.exGratia && f.gratuityMode !== 'none'} onChange={(v) => props.onChange({ ...e, fnf: { ...f, exGratia: v, gratuityMode: 'auto' }, asked: { ...e.asked, exGratia: true } })} label="My employer pays ex gratia in lieu of gratuity (under 5 years)" />
       ) : (
         <Toggle checked={f.gratuityMode === 'none'} onChange={(v) => setF({ gratuityMode: v ? 'none' : 'auto' })} label="My employer doesn't pay gratuity" />

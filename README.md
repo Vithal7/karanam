@@ -5,8 +5,8 @@ actually reaches your bank account each month until 31 March. It covers PF, prof
 and TDS as payroll would deduct it, the tax you owe or get back when you file, and optionally the
 following year.
 
-It automates the `tax_calculation.xlsx` workbook this repo started from. The unit tests reproduce
-that workbook's figures exactly (`src/domain/__tests__/workbook.test.ts`).
+It automates what a payroll register does by hand. The unit tests lay out a full year the same way
+and check it month by month (`src/domain/__tests__/workbook.test.ts`).
 
 ## What it does
 
@@ -14,9 +14,9 @@ that workbook's figures exactly (`src/domain/__tests__/workbook.test.ts`).
    your resignation email and the F&F slip, as PDF, Word, photos or pasted text. It works out what
    each file is and which company it's from, groups them into jobs (up to 3 in a year), and puts
    the jobs in date order with the new job last.
-2. **Tells your year as a story.** "Joined Sigma on 1 Mar 2024 at ₹67,500 basic. Hike from Apr
-   2026: CTC ₹18L → ₹21.9L (+21.6%), first paid in Jul 2026 with ₹93,933 arrears. Last working day
-   11 Nov 2026: November salary pro-rata for 11 of 30 days. Leave encashment 22 days × ₹2,736..."
+2. **Tells your year as a story.** "Joined Sigma on 1 Mar 2024 at ₹60,000 basic. Hike from Apr
+   2026: CTC ₹18L → ₹21.9L (+21.6%), first paid in Jul 2026 with ₹94,026 arrears. Last working day
+   13 Nov 2026: November salary pro-rata for 13 of 30 days. Leave encashment 18 days × ₹2,432..."
    Old letters are used as your starting salary and later letters or payslips update it.
    - **Appraisal letters** without a breakup (just a % or a new CTC) raise every component by the
      same %, from the effective date. If it's paid later, the difference comes as arrears.
@@ -49,7 +49,7 @@ from 17 Sep 2026) and the default professional tax.
 - The app ships with a copy, so it always works offline.
 - Whenever it's online (at start, on reconnecting, and daily while open), it downloads
   `/rules.json` from the site. If that copy is valid and newer, the app uses it and says so.
-- A monthly Claude routine checks official sources (Income Tax Department, CBDT, Finance Act,
+- A monthly scheduled check reviews official sources (Income Tax Department, CBDT, Finance Act,
   EPFO) and opens a PR here when something changes. Merging the PR deploys the site, and every
   installed app picks up the new rules the next time it's online.
 
@@ -84,7 +84,7 @@ English model from `node_modules` into `public/ocr/`, so OCR never touches a CDN
 Deployed as a Cloudflare Worker serving static assets (`wrangler.jsonc`), free for private repos.
 In the Cloudflare dashboard, open the worker → **Settings → Build**:
 
-- Git repository: `Vithal7/karanam`
+- Git repository: this repository
 - Build command: `npm run build`
 - Deploy command: `npx wrangler deploy`
 - Production branch: `main`. Other branches get preview URLs.

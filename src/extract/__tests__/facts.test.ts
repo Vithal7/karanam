@@ -11,30 +11,30 @@ The revised salary and arrears will be paid in July 2026 payroll.`;
 
 const APPRAISAL_FROM_TO = `Sigma Systems Pvt Ltd
 Salary revision letter
-Your CTC has been revised from ₹18,00,000 to ₹21,60,000 effective April 2026.`;
+Your CTC has been revised from ₹18,00,000 to ₹20,40,000 effective April 2026.`;
 
 const RESIGNATION = `From: HR Team <hr@sigma-systems.com>
-Date: 12/09/2026
+Date: 14/09/2026
 Subject: Acceptance of your resignation
 Dear Priya,
-We accept your resignation dated 12/09/2026. As per your appointment terms your notice period is 90 days.
-Your last working day will be 11th November 2026. The shortfall of 21 days will be recovered in your full and final settlement.
+We accept your resignation dated 14/09/2026. As per your appointment terms your notice period is 90 days.
+Your last working day will be 13th November 2026. The shortfall of 21 days will be recovered in your full and final settlement.
 Please note the joining bonus recovery of Rs. 50,000 applies as you are leaving within 12 months.`;
 
 const FNF = `Sigma Systems Private Limited
 Full and Final Settlement Statement
-Employee: Priya    Last Working Day: 11/11/2026
+Employee: Priya    Last Working Day: 13/11/2026
 Earnings                     Amount
-Leave Encashment (22 days)   60,192
+Leave Encashment (18 days)   43,776
 Gratuity                     0
 Deductions
-Notice Pay Recovery (21 days) 57,456
-Net Payable                  1,45,300
+Notice Pay Recovery (21 days) 51,072
+Net Payable                  1,32,000
 The settlement will be credited in December 2026.`;
 
 const OFFER = `ACME Technologies Private Limited
 Offer of Employment
-Your date of joining will be 12th November 2026.
+Your date of joining will be 14th November 2026.
 Joining Bonus: Rs. 1,50,000 payable with the third month salary. The joining bonus is repayable in full if you resign within 12 months of joining.
 We will reimburse your notice period buyout on actuals, up to a maximum of Rs. 1,00,000, against proof of recovery.`;
 
@@ -45,7 +45,7 @@ describe('classifyDoc', () => {
     expect(classifyDoc(RESIGNATION)).toBe('resignation');
     expect(classifyDoc(FNF)).toBe('fnf');
     expect(classifyDoc(OFFER)).toBe('offer');
-    expect(classifyDoc('Payslip for the month of August 2026\nBasic 82,080\nNet Pay 1,56,194')).toBe('payslip');
+    expect(classifyDoc('Payslip for the month of August 2026\nBasic 72,960\nNet Pay 1,56,194')).toBe('payslip');
   });
   it("doesn't mistake an offer's relieving-letter requirement for a resignation", () => {
     expect(classifyDoc(`Offer of Employment\nWe are pleased to offer you the role. Date of joining: 1/12/2026.\nPlease bring your relieving letter from your previous employer.`)).toBe('offer');
@@ -63,25 +63,25 @@ describe('extractFacts', () => {
   it('appraisal: "from X to Y"', () => {
     const f = extractFacts(APPRAISAL_FROM_TO, 'appraisal');
     expect(f.oldCtc).toBe(1800000);
-    expect(f.revisedCtc).toBe(2160000);
+    expect(f.revisedCtc).toBe(2040000);
     expect(f.effectiveFrom).toBe('2026-04-01');
   });
   it('resignation: LWD, notice, shortfall, clawback', () => {
     const f = extractFacts(RESIGNATION, 'resignation');
-    expect(f.lastWorkingDay).toBe('2026-11-11');
-    expect(f.resignationDate).toBe('2026-09-12');
+    expect(f.lastWorkingDay).toBe('2026-11-13');
+    expect(f.resignationDate).toBe('2026-09-14');
     expect(f.noticeDays).toBe(90);
     expect(f.shortfallDays).toBe(21);
     expect(f.clawback).toBe(50000);
   });
   it('F&F slip: amounts and pay month', () => {
     const f = extractFacts(FNF, 'fnf');
-    expect(f.lastWorkingDay).toBe('2026-11-11');
-    expect(f.leaveDays).toBe(22);
-    expect(f.leaveAmount).toBe(60192);
-    expect(f.noticeRecoveryAmount).toBe(57456);
+    expect(f.lastWorkingDay).toBe('2026-11-13');
+    expect(f.leaveDays).toBe(18);
+    expect(f.leaveAmount).toBe(43776);
+    expect(f.noticeRecoveryAmount).toBe(51072);
     expect(f.shortfallDays).toBe(21);
-    expect(f.netPayable).toBe(145300);
+    expect(f.netPayable).toBe(132000);
     expect(f.fnfPayMonth).toBe('2026-12');
   });
   it('offer: buyout cap and joining bonus clawback', () => {

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { parseText } from '../parse';
 
-const breakup = `Basic Salary 1,42,500 17,10,000
-House Rent Allowance 71,250 8,55,000
-Special Allowance 69,450 8,33,400`;
+const breakup = `Basic Salary 1,25,000 15,00,000
+House Rent Allowance 62,500 7,50,000
+Special Allowance 60,700 7,28,400`;
 
 describe('CTC in the ways offer letters say it', () => {
   const cases: [string, string, number][] = [
@@ -19,8 +19,8 @@ describe('CTC in the ways offer letters say it', () => {
   for (const [name, text, want] of cases) it(name, () => expect(parseText(text).components.ctc?.annual).toBe(want));
 
   it('worked out from the breakup when the letter never states it, and said so', () => {
-    const x = parseText(`Offer of employment\n${breakup}\nEmployer PF 1,800 21,600\nGratuity 6,854 82,248\nPerformance Linked Incentive 1,80,000`);
-    expect(x.components.ctc?.annual).toBe(1_710_000 + 855_000 + 833_400 + 21_600 + 82_248 + 180_000);
+    const x = parseText(`Offer of employment\n${breakup}\nEmployer PF 1,800 21,600\nGratuity 6,013 72,156\nPerformance Linked Incentive 1,80,000`);
+    expect(x.components.ctc?.annual).toBe(1_500_000 + 750_000 + 728_400 + 21_600 + 72_156 + 180_000);
     expect(x.components.ctc?.confidence).toBe('guessed');
     expect(x.warnings.join(' ')).toMatch(/worked out from the breakup/);
   });

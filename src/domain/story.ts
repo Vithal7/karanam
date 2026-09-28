@@ -1,6 +1,6 @@
 /**
  * The year in plain words, job by job: "Joined Acme on 1 Mar 2024 at ₹60,000 basic. Hike from
- * Apr 2026 ... Last working day ... Leave encashment 22 days × ₹2,736 ...".
+ * Apr 2026 ... Last working day ... Leave encashment 18 days × ₹2,432 ...".
  */
 import { repayableText } from './clawback';
 import { buyoutAmount, fnfItems, form12BMonth, type Result } from './compute';

@@ -286,7 +286,7 @@ export function App() {
       const r = docsFromText(text, name, doc.typed);
       const stay = r.docs.filter((d) => home.has(roleOf(d)) && (!d.employer || companyKey(d.employer) === companyKey(x.scenario.employers.find((j) => j.id === home.get(roleOf(d)))!.name) || !x.scenario.employers.some((j) => companyKey(j.name) === companyKey(d.employer))));
       const move = r.docs.filter((d) => !stay.includes(d));
-      // A company renamed in the note ("BP" -> "Shell India") renames its job; your answers stay.
+      // A company renamed in the note ("KV" -> "Shell India") renames its job; your answers stay.
       let next = employers.map((j) => {
         const mine = stay.filter((d) => home.get(roleOf(d)) === j.id);
         const renamed = mine.find((d) => d.employer && companyKey(d.employer) !== companyKey(j.name))?.employer;

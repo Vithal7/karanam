@@ -76,10 +76,10 @@ describe('comparing when you are staying', () => {
     ]);
   });
   it('an offer joining before your last day moves the last day, never both salaries in a month', () => {
-    const leaving = job({ id: 'a', name: 'A', end: '2026-11-11', endSource: 'doc' });
-    const bp = job({ id: 'bp', name: 'BP', start: '2026-11-12', startSource: 'doc', buyout: { mode: 'actuals' } });
+    const leaving = job({ id: 'a', name: 'A', end: '2026-11-13', endSource: 'doc' });
+    const kv = job({ id: 'kv', name: 'KV', start: '2026-11-14', startSource: 'doc', buyout: { mode: 'actuals' } });
     const early = job({ id: 'c', name: 'Beta', start: '2026-10-01', startSource: 'doc' });
-    const { s } = withOffer(scenario([leaving, bp]), early);
+    const { s } = withOffer(scenario([leaving, kv]), early);
     expect(s.employers[0].end).toBe('2026-09-30');
     const oct = compute(s).months.find((m) => m.month === '2026-10')!;
     expect(oct.lines.length).toBe(1);

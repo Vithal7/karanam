@@ -628,6 +628,7 @@
     "wagesRule": {
       "from": "2025-11-21",
       "allowanceShare": 0.5
-    }
+    },
+    "fixedTermMinYears": 1
   }
 }

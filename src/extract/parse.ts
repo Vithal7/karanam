@@ -75,7 +75,7 @@ const LABELS: [ComponentKey, RegExp][] = [
   ['nps', /\bnps\b|national\s+pension/i],
   ['gratuity', /gratuity/i],
   ['insurance', /insurance|mediclaim|medical\s+cover|group\s+(health|term)/i],
-  ['pt', /professional\s+tax|prof\.?\s*tax|\bp\.?\s*tax\b/i],
+  ['pt', /professional\s+tax|prof\.?\s*tax|\kv\.?\s*tax\b/i],
   ['tds', /income\s+tax|\btds\b/i],
   ['basic', /\bbasic\b|\bbase\s+(salary|pay)\b/i],
   ['hra', /\bhra\b|house\s+rent/i],
@@ -115,7 +115,7 @@ export const MON_RE = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun
 const DATE_PATTERNS: RegExp[] = [
   /\b(\d{4})-(\d{1,2})-(\d{1,2})\b/, // ISO
   /\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\b/, // dd/mm/yyyy
-  new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?[\\s-]*(?:of\\s+)?${MON_RE}[,.\\s-]*(\\d{2,4})\\b`, 'i'), // 12th Nov 2026
+  new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?[\\s-]*(?:of\\s+)?${MON_RE}[,.\\s-]*(\\d{2,4})\\b`, 'i'), // 14th Nov 2026
   new RegExp(`\\b${MON_RE}\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{4})\\b`, 'i'), // November 12, 2026
 ];
 
@@ -229,7 +229,7 @@ interface Segment {
 const isTotalText = (t: string) => /\btotal\b|\bgross\b|\bnet\s+(pay|salary|take)/i.test(t.replace(/\([^)]*\)/g, ' '));
 
 /**
- * Splits a line into labelled segments. Several components can share a line ("Basic 82,080
+ * Splits a line into labelled segments. Several components can share a line ("Basic 72,960
  * Provident Fund 1,800", or prose), so a new segment starts at a label only when a number sits
  * between it and the previous label; otherwise labels merge ("House Rent Allowance").
  */
@@ -421,10 +421,10 @@ export function parseText(text: string): Extracted {
   }
 
   // Percent-only rows: basic as a share of CTC, HRA as a share of basic.
-  const bp = components.basic;
-  if (bp && !bp.annual && bp.pct && ctc) {
-    bp.annual = ctc * bp.pct;
-    bp.monthly = bp.annual / 12;
+  const bs = components.basic;
+  if (bs && !bs.annual && bs.pct && ctc) {
+    bs.annual = ctc * bs.pct;
+    bs.monthly = bs.annual / 12;
   }
   const hp = components.hra;
   if (hp && !hp.annual && hp.pct && components.basic?.monthly) {
@@ -473,7 +473,7 @@ export function parseText(text: string): Extracted {
   if (kind === 'offer' && !doj) warnings.push('Could not find the date of joining. Please enter it.');
 
   // Rows we don't recognise by name but that read like salary lines (monthly and annual figures
-  // 12x apart), e.g. "Acme Allow  5,24,520  43,710" or "Fixed Pay  ...": keep them as allowances.
+  // 12x apart), e.g. "Acme Allow  6,49,200  54,100" or "Fixed Pay  ...": keep them as allowances.
   for (const l of lines) {
     if (segments(l).length) continue;
     const label = rowLabel(l);

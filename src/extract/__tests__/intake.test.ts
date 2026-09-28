@@ -11,9 +11,9 @@ Offer of Employment
 Dear Priya, we are pleased to offer you the role of Engineer. Your date of joining will be 1st March 2024.
 Annexure - Compensation
 Component Monthly Annual
-Basic 67,500 8,10,000
-HRA 33,750 4,05,000
-Special Allowance 43,710 5,24,520
+Basic 60,000 7,20,000
+HRA 31,000 3,72,000
+Special Allowance 54,100 6,49,200
 Total CTC 18,00,000`;
 
 const SIGMA_APPRAISAL = `Sigma Systems Private Limited
@@ -23,28 +23,28 @@ We are pleased to inform you of an increment of 21.6% in your compensation with 
 The revised salary and arrears will be paid in July 2026 payroll.`;
 
 const SIGMA_RESIGNATION = `From: HR Team <hr@sigmasystems.com>
-Date: 12/09/2026
+Date: 14/09/2026
 Subject: Acceptance of your resignation - Sigma Systems Private Limited
-We accept your resignation dated 12/09/2026. Your last working day will be 11th November 2026.
+We accept your resignation dated 14/09/2026. Your last working day will be 13th November 2026.
 The shortfall of 21 days of notice will be recovered in your full and final settlement.`;
 
 const SIGMA_FNF = `Sigma Systems Private Limited
 Full and Final Settlement Statement
-Last Working Day: 11/11/2026
-Leave Encashment (22 days)   60,192
-Notice Pay Recovery (21 days) 57,456
-Net Payable 1,45,300
+Last Working Day: 13/11/2026
+Leave Encashment (18 days)   43,776
+Notice Pay Recovery (21 days) 51,072
+Net Payable 1,32,000
 The settlement will be credited in December 2026.`;
 
 const ACME_OFFER = `ACME Technologies Private Limited
 Date: 15/10/2026
 Offer of Employment
-Your date of joining will be 12th November 2026.
+Your date of joining will be 14th November 2026.
 Component Monthly Annual
-Basic Salary 1,42,500 17,10,000
-House Rent Allowance 71,250 8,55,000
-Special Allowance 69,450 8,33,400
-Total CTC 36,98,651
+Basic Salary 1,25,000 15,00,000
+House Rent Allowance 62,500 7,50,000
+Special Allowance 60,700 7,28,400
+Total CTC 32,40,000
 Joining Bonus: Rs. 1,50,000 payable with the third month salary. It is repayable if you resign within 12 months of joining.
 We will reimburse your notice buyout on actuals, up to a maximum of Rs. 1,00,000.`;
 
@@ -76,25 +76,25 @@ describe('drop everything, we sort it', () => {
 
   it('reads an old offer as the starting salary and the appraisal as a dated hike', () => {
     expect(sigma.start).toBe('2024-03-01');
-    expect(sigma.structure.basic).toBe(67500);
+    expect(sigma.structure.basic).toBe(60000);
     expect(sigma.ctc).toBe(1800000);
     expect(sigma.revisions).toHaveLength(1);
     const h = sigma.revisions[0];
     expect(h.from).toBe('2026-04');
     expect(h.payoutMonth).toBe('2026-07');
-    expect(h.structure.basic).toBe(82080);
+    expect(h.structure.basic).toBe(72960);
     expect(h.ctc).toBe(2188800);
     expect(h.scaled).toBe(true);
   });
 
   it('reads the exit from the resignation and F&F papers', () => {
-    expect(sigma.end).toBe('2026-11-11');
-    expect(sigma.resignedOn).toBe('2026-09-12');
-    expect(sigma.fnf).toMatchObject({ leaveDays: 22, leaveAmount: 60192, noticeDaysRecovered: 21, noticeAmount: 57456, payMonth: '2026-12' });
+    expect(sigma.end).toBe('2026-11-13');
+    expect(sigma.resignedOn).toBe('2026-09-14');
+    expect(sigma.fnf).toMatchObject({ leaveDays: 18, leaveAmount: 43776, noticeDaysRecovered: 21, noticeAmount: 51072, payMonth: '2026-12' });
   });
 
   it('reads the new offer terms', () => {
-    expect(acme.start).toBe('2026-11-12');
+    expect(acme.start).toBe('2026-11-14');
     expect(acme.buyout).toMatchObject({ mode: 'cap', cap: 100000 });
     const jb = acme.oneTimes.find((o) => o.kind === 'joining')!;
     expect(jb.month).toBe('2027-01');
@@ -104,9 +104,9 @@ describe('drop everything, we sort it', () => {
   it('computes the year from it', () => {
     const r = compute({ fy: 2026, today: '2026-09-27', settings: { thirtyDayMonth: true, nextFyHike: 0.1 }, employers: built });
     const jul = r.employers[0].lines.find((l) => l.month === '2026-07')!;
-    expect(jul.oneTimes.find((o) => /Arrears/.test(o.label))!.amount).toBe(3 * (82080 + 41040 + 53151 - (67500 + 33750 + 43710)));
+    expect(jul.oneTimes.find((o) => /Arrears/.test(o.label))!.amount).toBe(3 * (72960 + 37696 + 65786 - (60000 + 31000 + 54100)));
     const buyout = r.employers[1].lines.flatMap((l) => l.oneTimes).find((o) => o.kind === 'buyout')!;
-    expect(buyout.amount).toBe(57456);
+    expect(buyout.amount).toBe(51072);
   });
 });
 
@@ -122,20 +122,20 @@ describe('story and ITR', async () => {
   const text = story.map((j) => j.lines.map((l) => l.text).join('\n'));
 
   it('tells the Sigma story', () => {
-    expect(text[0]).toContain('Joined on 1 Mar 2024 at ₹67,500 basic');
+    expect(text[0]).toContain('Joined on 1 Mar 2024 at ₹60,000 basic');
     expect(text[0]).toContain('Hike from Apr 2026: CTC ₹18,00,000 → ₹21,88,800 (+21.6%)');
     expect(text[0]).toContain('First paid in Jul 2026, with');
-    expect(text[0]).toContain('Resigned on 12 Sept 2026');
-    expect(text[0]).toContain('pro-rata for 11 of 30 days');
-    expect(text[0]).toContain('Leave encashment ₹60,192 as per your F&F slip (22 days)');
+    expect(text[0]).toContain('Resigned on 14 Sept 2026');
+    expect(text[0]).toContain('pro-rata for 13 of 30 days');
+    expect(text[0]).toContain('Leave encashment ₹43,776 as per your F&F slip (18 days)');
     expect(text[0]).toContain('F&F settled in Dec 2026');
   });
 
   it('tells the ACME story', () => {
     expect(story[1].isNew).toBe(true);
-    expect(text[1]).toContain('Joining on 12 Nov 2026');
+    expect(text[1]).toContain('Joining on 14 Nov 2026');
     expect(text[1]).toContain('Repayable if you leave before Nov 2027');
-    expect(text[1]).toContain('Notice buyout reimbursed up to ₹1,00,000: ₹57,456 of ₹57,456 comes back to you');
+    expect(text[1]).toContain('Notice buyout reimbursed up to ₹1,00,000: ₹51,072 of ₹51,072 comes back to you');
     expect(text[1]).toContain('Form 12B given before the Dec 2026 salary');
   });
 
@@ -144,7 +144,7 @@ describe('story and ITR', async () => {
     expect(t.assessmentYear).toBe('2027-28');
     expect(t.dueDate).toBe('31 July 2027');
     expect(t.employers.map((e) => e.name)).toEqual(['Sigma Systems Private Limited', 'ACME Technologies Private Limited']);
-    expect(t.employers[0].leaveExempt).toBe(60192);
+    expect(t.employers[0].leaveExempt).toBe(43776);
     expect(t.netSalary - t.standardDeduction - t.npsDeduction).toBeCloseTo(r.filing.taxable, -1);
     expect(t.balance).toBeCloseTo(r.filing.balance, 6);
     expect(t.checklist.join(' ')).toMatch(/standard deduction only once/);
@@ -154,32 +154,32 @@ describe('story and ITR', async () => {
 describe('time axis first, even without company names', () => {
   // Letters whose letterheads were images: no company in the text. File names and dates must do.
   const appointment = docFromText(`Appointment Letter
-Dear Vithal, we are pleased to appoint you. Your date of joining will be 6th January 2025.
+Dear Kiran, we are pleased to appoint you. Your date of joining will be 6th January 2025.
 Component Monthly Annual
 Basic 50,000 6,00,000
 HRA 25,000 3,00,000
 Special Allowance 45,000 5,40,000
-Total CTC 15,00,000`, 'Vithal Suzlon Appointment Letter (1).pdf');
+Total CTC 15,00,000`, 'Kiran Northwind Appointment Letter (1).pdf');
   const appraisal = docFromText(`Salary Revision
 Date: 25/06/2026
-We are pleased to inform you that your annual CTC has been revised to Rs. 18,00,000 with effect from 1st July 2026.`, 'Suzlon Appraisal Letter 2025-26.pdf');
+We are pleased to inform you that your annual CTC has been revised to Rs. 18,00,000 with effect from 1st July 2026.`, 'Northwind Appraisal Letter 2025-26.pdf');
   const newOffer = docFromText(`LinkedIn Technology Information Private Limited
 Offer Letter
 Your date of joining will be 2nd November 2026.
 Component Monthly Annual
-Basic 1,42,500 17,10,000
-HRA 71,250 8,55,000
+Basic 1,25,000 15,00,000
+HRA 62,500 7,50,000
 Performance Linked Incentive 2,00,000
 Total CTC 38,00,000
-Joining Bonus: Rs. 1,50,000 payable with your first salary.`, 'Vithal LinkedIn Offer.pdf');
+Joining Bonus: Rs. 1,50,000 payable with your first salary.`, 'Kiran LinkedIn Offer.pdf');
 
   const { employers, unassigned } = assignDocs([blankJob('New job', '2026-09-27')], [newOffer, appraisal, appointment], 2026);
 
   it('keeps each job to its own letters', () => {
     expect(unassigned).toEqual([]);
-    expect(employers.map((e) => e.name)).toEqual(['Suzlon', 'LinkedIn Technology Information Private Limited']);
-    expect(employers[0].docs.map((d) => d.name).sort()).toEqual(['Suzlon Appraisal Letter 2025-26.pdf', 'Vithal Suzlon Appointment Letter (1).pdf']);
-    expect(employers[1].docs.map((d) => d.name)).toEqual(['Vithal LinkedIn Offer.pdf']);
+    expect(employers.map((e) => e.name)).toEqual(['Northwind', 'LinkedIn Technology Information Private Limited']);
+    expect(employers[0].docs.map((d) => d.name).sort()).toEqual(['Kiran Northwind Appointment Letter (1).pdf', 'Northwind Appraisal Letter 2025-26.pdf']);
+    expect(employers[1].docs.map((d) => d.name)).toEqual(['Kiran LinkedIn Offer.pdf']);
   });
 
   it('never files a letter under a job that started after it', () => {
@@ -197,23 +197,23 @@ Joining Bonus: Rs. 1,50,000 payable with your first salary.`, 'Vithal LinkedIn O
 
 describe('timeline for a move that has not happened yet', async () => {
   const { buildTimeline } = await import('../../domain/story');
-  const appointment = docFromText(`SUZLON ENERGY LIMITED
+  const appointment = docFromText(`NORTHWIND ENERGY LIMITED
 Appointment Letter
 Your date of joining will be 6th January 2025.
 Component Monthly Annual
 Basic 75,000 9,00,000
 HRA 37,500 4,50,000
 Special Allowance 62,500 7,50,000
-Total CTC 22,00,000`, 'Vithal Suzlon Appointment Letter (1).pdf');
-  const appraisal = docFromText(`Date: 25/06/2026\nSubject: Annual Salary Revision\nYour annual CTC has been revised to Rs. 25,30,000 with effect from 1st July 2026.`, 'Suzlon Appraisal Letter 2025-26.pdf');
+Total CTC 22,00,000`, 'Kiran Northwind Appointment Letter (1).pdf');
+  const appraisal = docFromText(`Date: 25/06/2026\nSubject: Annual Salary Revision\nYour annual CTC has been revised to Rs. 25,30,000 with effect from 1st July 2026.`, 'Northwind Appraisal Letter 2025-26.pdf');
   const offer = docFromText(`LinkedIn Technology Information Private Limited
 Offer Letter
 Your date of joining will be 2nd November 2026.
 Component Monthly Annual
-Basic Salary 1,42,500 17,10,000
+Basic Salary 1,25,000 15,00,000
 Performance Linked Incentive 2,00,000
 Total CTC 38,00,000
-Joining Bonus: Rs. 1,50,000 payable with your first salary.`, 'Vithal LinkedIn Offer.pdf');
+Joining Bonus: Rs. 1,50,000 payable with your first salary.`, 'Kiran LinkedIn Offer.pdf');
   const { employers } = assignDocs([blankJob('New job', '2026-09-27')], [offer, appraisal, appointment], 2026);
   const built = employers.map((e) => applyEvents(applyDocs(e, {}, bundledRules).emp, bundledRules, '2026-04').emp);
   built[0].end = '2026-11-01';
@@ -223,7 +223,7 @@ Joining Bonus: Rs. 1,50,000 payable with your first salary.`, 'Vithal LinkedIn O
   const texts = t.map((e) => e.text);
 
   it('names both companies correctly', () => {
-    expect(built.map((e) => e.name)).toEqual(['Suzlon Energy Limited', 'LinkedIn Technology Information Private Limited']);
+    expect(built.map((e) => e.name)).toEqual(['Northwind Energy Limited', 'LinkedIn Technology Information Private Limited']);
   });
   it('keeps the old job on its own salary until the move', () => {
     const oct = r.employers[0].lines.find((l) => l.month === '2026-10')!;
@@ -232,8 +232,8 @@ Joining Bonus: Rs. 1,50,000 payable with your first salary.`, 'Vithal LinkedIn O
   });
   it('orders events and uses the right tense', () => {
     const i = (re: RegExp) => texts.findIndex((x) => re.test(x));
-    expect(texts[i(/Joined Suzlon/)]).toBe('Joined Suzlon Energy');
-    expect(i(/Hike at Suzlon/)).toBeLessThan(i(/Last day at Suzlon/));
+    expect(texts[i(/Joined Northwind/)]).toBe('Joined Northwind Energy');
+    expect(i(/Hike at Northwind/)).toBeLessThan(i(/Last day at Northwind/));
     expect(i(/^Join LinkedIn/)).toBeLessThan(i(/Joining bonus/));
     expect(t[i(/^Join LinkedIn/)].date > s.today).toBe(true);
     expect(texts.some((x) => /^Joined LinkedIn/.test(x))).toBe(false);
@@ -242,22 +242,22 @@ Joining Bonus: Rs. 1,50,000 payable with your first salary.`, 'Vithal LinkedIn O
 
 describe('hard real-world documents', () => {
   it('reads a tax computation sheet as TDS so far, not a salary breakup', () => {
-    const d = docFromText(`SUZLON GLOBAL SERVICES LIMITED
+    const d = docFromText(`NORTHWIND GLOBAL SERVICES LIMITED
 Income Tax Computation for the Financial Year 2026-27
 Employee Code: 10234567   PAN: ABCDE1234F   UAN: 100987654321
 Particulars          Actual      Projected     Total
-Basic               4,05,000     5,05,440      9,10,440
+Basic               3,72,000     5,05,440      9,10,440
 House Rent Allowance 2,02,500    2,52,720      4,55,220
 Gross Salary        8,69,760    10,84,176     19,53,936
 Less: Standard Deduction                       75,000
 Taxable Income                                18,78,936
 Tax on Total Income                            2,31,787
 Tax deducted till date                         1,72,170
-Balance tax payable                              59,617`, 'Suzlon Tax Computation Sep 2026.pdf');
+Balance tax payable                              59,617`, 'Northwind Tax Computation Sep 2026.pdf');
     expect(d.kind).toBe('taxsheet');
     expect(d.fields).toEqual({});
     expect(d.ytdTds).toBe(172170);
-    expect(d.employer).toBe('Suzlon Global Services Limited');
+    expect(d.employer).toBe('Northwind Global Services Limited');
   });
 
   it('joins a company name that wraps onto the next line', () => {
@@ -265,7 +265,7 @@ Balance tax payable                              59,617`, 'Suzlon Tax Computatio
 Private Limited
 Offer Letter
 Your date of joining will be 2nd November 2026.
-Basic Salary 1,42,500 17,10,000`, 'offer.pdf');
+Basic Salary 1,25,000 15,00,000`, 'offer.pdf');
     expect(d.employer).toBe('LinkedIn Technology Information Private Limited');
   });
 
@@ -275,23 +275,23 @@ Basic Salary 1,42,500 17,10,000`, 'offer.pdf');
   });
 
   it('ignores account numbers and IDs as amounts', () => {
-    const d = docFromText(`Offer Letter\nBank Account 50100123456789\nBasic 67,500 8,10,000\nTotal CTC 21,60,000`, 'offer.pdf');
-    expect(d.fields.basic).toBe(67500);
-    expect(d.fields.ctc).toBe(2160000);
+    const d = docFromText(`Offer Letter\nBank Account 50100123456789\nBasic 60,000 7,20,000\nTotal CTC 20,40,000`, 'offer.pdf');
+    expect(d.fields.basic).toBe(60000);
+    expect(d.fields.ctc).toBe(2040000);
   });
 
   it('finds a joining date given as "with effect from"', () => {
-    const d = docFromText(`Suzlon Global Services Limited
+    const d = docFromText(`Northwind Global Services Limited
 Date: 20/12/2024
 Letter of Appointment
 We are pleased to appoint you as Manager with effect from 06.01.2025.
-Basic 67,500 8,10,000`, 'appointment.pdf');
+Basic 60,000 7,20,000`, 'appointment.pdf');
     expect(d.kind).toBe('offer');
     expect(d.doj).toBe('2025-01-06');
   });
 
   it("says so when a letter has no joining date instead of inventing one", () => {
-    const d = docFromText(`Suzlon Global Services Limited\nDate: 20/12/2024\nLetter of Appointment\nBasic 67,500 8,10,000`, 'appointment.pdf');
+    const d = docFromText(`Northwind Global Services Limited\nDate: 20/12/2024\nLetter of Appointment\nBasic 60,000 7,20,000`, 'appointment.pdf');
     const e = applyDocs({ ...blankJob('Job 1', '2026-04-01'), docs: [d] }, {}, bundledRules).emp;
     expect(e.startSource).toBe('approx');
     expect(e.start).toBe('2024-12-20');
@@ -321,12 +321,12 @@ TDS 9,000 9,000 9,000
 Date: 15/03/2026`;
   const OLD_SLIP = `Sigma Systems Private Limited
 Payslip for the month of May 2024
-Basic 67,500
-HRA 33,750
+Basic 60,000
+HRA 31,000
 Income Tax 5,000`;
   const NEW_SLIP = `Sigma Systems Private Limited
 Payslip for the month of August 2026
-Basic 82,080
+Basic 72,960
 HRA 41,040
 Income Tax 16,110`;
   const files = [
@@ -370,21 +370,21 @@ describe('joining bonus after probation', () => {
   const OFFER = `Resilient Innovations Private Limited
 Date: 01/10/2026
 Offer of Employment
-Your date of joining will be 12th November 2026. You will be on probation for a period of three months.
-Basic Salary 1,42,500 17,10,000
-HRA 71,250 8,55,000
-Special Allowance 69,450 8,33,400
+Your date of joining will be 14th November 2026. You will be on probation for a period of three months.
+Basic Salary 1,25,000 15,00,000
+HRA 62,500 7,50,000
+Special Allowance 60,700 7,28,400
 Total CTC 38,00,000
 Joining Bonus 1,50,000`;
   it('is paid with the salary of the month after probation', () => {
-    const { employers } = assignDocs([blankJob('New job', '2026-09-27')], [docFromText(OFFER, 'bp offer.pdf')], 2026);
+    const { employers } = assignDocs([blankJob('New job', '2026-09-27')], [docFromText(OFFER, 'kv offer.pdf')], 2026);
     const ev = applyEvents(applyDocs(employers[0], {}, bundledRules).emp, bundledRules, '2026-04');
     expect(ev.emp.oneTimes.find((o) => o.kind === 'joining')?.month).toBe('2027-02');
     expect(ev.notes.join(' ')).toMatch(/3 months' probation/);
   });
   it('a stated month wins', () => {
     const t = OFFER.replace('Joining Bonus 1,50,000', 'Joining Bonus 1,50,000 payable with the first month salary');
-    const { employers } = assignDocs([blankJob('New job', '2026-09-27')], [docFromText(t, 'bp offer.pdf')], 2026);
+    const { employers } = assignDocs([blankJob('New job', '2026-09-27')], [docFromText(t, 'kv offer.pdf')], 2026);
     const ev = applyEvents(applyDocs(employers[0], {}, bundledRules).emp, bundledRules, '2026-04');
     expect(ev.emp.oneTimes.find((o) => o.kind === 'joining')?.month).toBe('2026-11');
   });

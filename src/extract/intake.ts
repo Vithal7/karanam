@@ -9,7 +9,7 @@ import { uid } from '../format';
 import { classifyDoc, companyFromEmail, companyKey, extractFacts } from './facts';
 import { docFromExtract } from './merge';
 import { parseText } from './parse';
-import { isNote, parseNote } from './note';
+import { isNote, looksLikeDocument, parseNote } from './note';
 import { parseMonthTable, sheetFy } from './months';
 import { parseForm16 } from './form16';
 import { fyEnd, fyOf, maxDate, minDate } from '../domain/fy';
@@ -74,7 +74,17 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
  * Nov") becomes the new offer and the exit from your current job; anything else is one record.
  */
 export function docsFromText(text: string, name: string, typed = false): { docs: DocRecord[]; alternatives: DocRecord[]; warnings?: string[] } {
-  // Text you typed or pasted is your own words, whatever it mentions; a file is a note only if it reads like one.
+  // A pasted letter, payslip or F&F statement is read like the file it came from. Its company and
+  // joining date come from your words if the document doesn't give them.
+  if (typed && looksLikeDocument(text)) {
+    const d = docFromText(text, name);
+    const n = parseNote(text, name);
+    const hint = d.kind === 'offer' ? n.offer ?? n.current : d.kind === 'resignation' || d.kind === 'fnf' ? n.exit : undefined;
+    if (!d.employer && hint?.employer) Object.assign(d, { employer: hint.employer, employerTyped: true });
+    if (d.kind === 'offer' && !d.doj && hint?.doj) d.doj = hint.doj;
+    return { docs: [d], alternatives: [] };
+  }
+  // Text you typed is your own words, whatever it mentions; a file is a note only if it reads like one.
   if (typed || isNote(text)) {
     const n = parseNote(text, name);
     const mark = (d: DocRecord): DocRecord => ({ ...d, ...(d.employer ? { employerTyped: true } : {}), ...(typed ? { typed: true } : {}) });

@@ -315,7 +315,13 @@ export function App() {
   };
   const patchDoc = (jobId: string, docId: string, patch: Partial<DocRecord>) =>
     setSt((x) => {
-      const employers = x.scenario.employers.map((j) => (j.id === jobId ? { ...j, docs: j.docs.map((d) => (d.id === docId ? { ...d, ...patch } : d)) } : j));
+      const employers = x.scenario.employers.map((j) => {
+        if (j.id !== jobId) return j;
+        const old = j.docs.find((d) => d.id === docId);
+        // You corrected the company in your note, and the job was named from it: rename the job.
+        const rename = patch.employer && old?.employer !== patch.employer && (!old?.employer || companyKey(old.employer) === companyKey(j.name) || j.fromFiles) ? { name: patch.employer } : {};
+        return { ...j, ...rename, docs: j.docs.map((d) => (d.id === docId ? { ...d, ...patch } : d)) };
+      });
       return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [jobId], rules);
     });
   const answerHike = (jobId: string, docId: string, facts: Partial<Facts>) =>

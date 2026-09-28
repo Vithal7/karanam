@@ -18,6 +18,7 @@ import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
 import { docHints } from '../docHints';
 import { Glossary } from '../Glossary';
+import { NoteReview, needsReview } from '../NoteReview';
 import type { Pending } from '../pending';
 import { LocationQuestion } from '../Location';
 import { BuyoutQuestion, NpsQuestion, RelocationQuestion, needsBuyout, needsNps, needsRelocation } from '../JoiningQuestions';
@@ -275,6 +276,7 @@ export function StoryStep(props: {
             const e = s.employers[k];
             return (
               <>
+                {clarify && e.docs.filter(needsReview).map((d) => <NoteReview doc={d} jobName={e.name} onSave={(p) => props.onPatchDoc(e.id, d.id, p)} />)}
                 {clarify && exitQuestionFor(e, k, n) && (
                   <ExitQuestion emp={e} next={s.employers[k + 1]} fy={s.fy} thirty={s.settings.thirtyDayMonth} onConfirm={props.onChangeJob} onChangeNext={props.onChangeJob} />
                 )}
@@ -310,8 +312,8 @@ export function StoryStep(props: {
                 {clarify && e.fnf && !e.leaveConfirmed && !e.fnf.leaveDays && e.fnf.leaveAmount === undefined && (k < n - 1 || !!e.end) && <LeaveQuestion emp={e} onChange={props.onChangeJob} />}
                 {clarify && !e.totalsOnly && (!e.location?.state || e.location.source === 'guess') && <LocationQuestion emp={e} rules={rules} onChange={props.onChangeJob} />}
                 {clarify && needsPrevVariable(e, s.fy) && <PrevVariableQuestion emp={e} fy={s.fy} onChange={props.onChangeJob} />}
-                {clarify && e.docs.filter((d) => d.facts?.yearGuess).map((d) => <YearQuestion doc={d} onAnswer={(p) => props.onPatchDoc(e.id, d.id, p)} />)}
-                {clarify && (props.needs[e.id] ?? []).map((need) => (
+                {clarify && e.docs.filter((d) => d.facts?.yearGuess && !needsReview(d)).map((d) => <YearQuestion doc={d} onAnswer={(p) => props.onPatchDoc(e.id, d.id, p)} />)}
+                {clarify && (props.needs[e.id] ?? []).filter((need) => !e.docs.some((d) => d.id === need.docId && needsReview(d))).map((need) => (
                   <HikeQuestion need={need} onAnswer={(f) => props.onAnswerHike(e.id, need.docId, f)} />
                 ))}
                 {clarify && (() => {

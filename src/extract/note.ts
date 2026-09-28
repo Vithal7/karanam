@@ -31,6 +31,20 @@ function letterSigns(text: string): boolean {
   );
 }
 
+/**
+ * Pasted text that is clearly a document, not your own words: a letter or email (salutation,
+ * headers, letterhead), or a payslip, F&F statement or tax sheet (their own wording with a table).
+ * It goes through the document reader, as a file would.
+ */
+export function looksLikeDocument(text: string): boolean {
+  if (letterSigns(text)) return true;
+  const rows = text.split('\n').filter((l) => /\d[\d,]{3,}(\.\d+)?\s*$/.test(l.trim())).length;
+  const words = new Set(
+    (text.match(/pay\s*slip|salary\s+slip|net\s+pay|gross\s+earnings|total\s+(earnings|deductions)|full\s*(and|&)\s*final|settlement\s+(statement|slip)|form\s*16|tax\s+computation|certificate\s+under\s+section|employee\s+(code|id|no)|\buan\b|pay\s+period|days\s+paid|lop\s+days/gi) ?? []).map((w) => w.toLowerCase().replace(/\s+/g, ' ')),
+  ).size;
+  return words >= 2 || (rows >= 3 && words >= 1) || rows >= 5;
+}
+
 /** A file's text written like a message rather than a letter. (Text you type or paste is always a note.) */
 export function isNote(text: string): boolean {
   if (text.length > 4000) return false;

@@ -275,6 +275,8 @@ export interface DocRecord {
   similarTo?: string;
   /** The company name asked about: one answer covers every file with it. */
   similarKey?: string;
+  /** You checked what was read from your note ("Looks right"). */
+  confirmed?: boolean;
   /** What this record is in the note it came from: the offer, your current job, leaving it, a hike. */
   noteRole?: 'offer' | 'current' | 'exit' | 'hike' | 'alternative';
   ytdTds?: number;

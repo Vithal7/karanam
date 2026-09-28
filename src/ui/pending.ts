@@ -9,6 +9,7 @@ import { exitQuestionFor } from './ExitQuestion';
 import { pfCeilingRiseIn, ptRuleFor } from '../domain/schedule';
 import { monthLong } from '../domain/fy';
 import { needsExGratia, needsNotice, staleSalary } from './Questions';
+import { needsReview } from './NoteReview';
 import { needsBuyout, needsNps, needsRelocation, prevNps } from './JoiningQuestions';
 
 export interface Pending {
@@ -49,8 +50,12 @@ export function pendingItems(st: AppState, s: Scenario, rules: Rules, openConfli
     for (const r of e.revisions.filter((x) => x.dateGuessed)) out.push({ job: e.id, text: `${name}: the hike letter has no effective date; we used ${monthLong(r.from)}`, soft: true });
     const c = openConflicts(e);
     if (c) out.push({ job: e.id, text: `${name}: ${c} figure${c === 1 ? '' : 's'} differ between your files` });
-    for (const need of st.needs[e.id] ?? []) out.push({ job: e.id, text: need.askMonth ? `${name}: which month the pay in ${need.docName} applies from` : `${name}: how big the hike in ${need.docName} was` });
-    for (const d of e.docs.filter((x) => x.facts?.yearGuess)) out.push({ job: e.id, text: `${name}: which year the date in ${d.name} is` });
+    const toReview = e.docs.filter(needsReview).length;
+    if (toReview) out.push({ job: e.id, text: `${name}: check what I read from your note${toReview > 1 ? ` (${toReview} parts)` : ''}` });
+    const reviewing = (id: string) => e.docs.some((d) => d.id === id && needsReview(d));
+    for (const need of (st.needs[e.id] ?? []).filter((x) => !reviewing(x.docId)))
+      out.push({ job: e.id, text: need.askMonth ? `${name}: which month the pay in ${need.docName} applies from` : `${name}: how big the hike in ${need.docName} was` });
+    for (const d of e.docs.filter((x) => x.facts?.yearGuess && !needsReview(x))) out.push({ job: e.id, text: `${name}: which year the date in ${d.name} is` });
     const exitQ = exitQuestionFor(e, k, n);
     if (exitQ) out.push({ job: e.id, text: exitQ });
     if (e.startSource === 'default') out.push({ job: e.id, text: `${name}: your joining date` });

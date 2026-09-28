@@ -1652,3 +1652,7 @@ table.compare td.best { font-weight: 700; color: var(--good, #1a7f37); }
 .glossary dl { margin: 8px 0 0; }
 .glossary dt { font-weight: 600; margin-top: 8px; }
 .glossary dd { margin: 2px 0 0; color: var(--muted); }
+
+/* "Here's what I read" from a note */
+.note-review .grid2 { margin-top: 4px; }
+.note-review .year-pick { display: block; margin-top: 4px; }

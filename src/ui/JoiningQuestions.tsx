@@ -146,7 +146,7 @@ export function BuyoutQuestion(props: { s: Scenario; k: number; onChange: (e: Em
           <>
             {' '}
             <strong>
-              Your {e.docs.some((d) => d.facts?.buyout && isNote(d.text ?? '')) ? 'note' : 'offer'} says: {fromDoc.mode === 'cap' && fromDoc.cap ? `up to ${rs(fromDoc.cap)}` : 'in full'}
+              Your {e.docs.some((d) => d.facts?.buyout && (d.typed || isNote(d.text ?? ''))) ? 'note' : 'offer'} says: {fromDoc.mode === 'cap' && fromDoc.cap ? `up to ${rs(fromDoc.cap)}` : 'in full'}
               {fromDoc.includesClawback ? ', including the bonus you repay' : ''}.
             </strong>{' '}
             Confirm or change it.
@@ -211,7 +211,7 @@ export function RelocationQuestion(props: { s: Scenario; k: number; onChange: (e
     <div class="callout ask exit-q">
       <p>
         <strong>Does {e.name || 'your new employer'} give relocation support?</strong>{' '}
-        {found ? `Your ${e.docs.some((d) => d.facts?.relocation && isNote(d.text ?? '')) ? 'note' : 'offer letter'} mentions relocation${found.amount ? ` (${rs(found.amount)})` : ''}${found.reimbursement ? ', reimbursed against bills' : ''}. ` : ''}
+        {found ? `Your ${e.docs.some((d) => d.facts?.relocation && (d.typed || isNote(d.text ?? ''))) ? 'note' : 'offer letter'} mentions relocation${found.amount ? ` (${rs(found.amount)})` : ''}${found.reimbursement ? ', reimbursed against bills' : ''}. ` : ''}
         Moving costs reimbursed against bills (travel, packing, transport) are tax-free; a fixed relocation allowance or bonus is taxed like salary.
       </p>
       <Choices<'no' | 'reimb' | 'lump'>

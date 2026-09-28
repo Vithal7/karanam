@@ -23,7 +23,10 @@ export interface Pending {
 export function pendingItems(st: AppState, s: Scenario, rules: Rules, openConflicts: (e: Employment) => number): Pending[] {
   const out: Pending[] = [];
   const n = s.employers.length;
-  if (st.inbox.length) out.push({ text: `Which job ${st.inbox.length === 1 ? 'a file is' : `${st.inbox.length} files are`} for` });
+  for (const d of st.inbox.filter((x) => x.similarTo && s.employers.some((e) => e.id === x.similarTo)))
+    out.push({ text: `Is ${d.employer} the same employer as ${s.employers.find((e) => e.id === d.similarTo)!.name}?` });
+  const plain = st.inbox.filter((x) => !x.similarTo || !s.employers.some((e) => e.id === x.similarTo)).length;
+  if (plain) out.push({ text: `Which job ${plain === 1 ? 'a file is' : `${plain} files are`} for` });
   for (const x of validateEmployers(s)) out.push({ text: x });
   const first = s.employers[0];
   if (first && !first.totalsOnly && first.start > fyStart(s.fy) && first.startSource !== 'default' && !s.settings.noEarlierIncome)
@@ -46,7 +49,8 @@ export function pendingItems(st: AppState, s: Scenario, rules: Rules, openConfli
     for (const r of e.revisions.filter((x) => x.dateGuessed)) out.push({ job: e.id, text: `${name}: the hike letter has no effective date; we used ${monthLong(r.from)}`, soft: true });
     const c = openConflicts(e);
     if (c) out.push({ job: e.id, text: `${name}: ${c} figure${c === 1 ? '' : 's'} differ between your files` });
-    for (const need of st.needs[e.id] ?? []) out.push({ job: e.id, text: `${name}: how big the hike in ${need.docName} was` });
+    for (const need of st.needs[e.id] ?? []) out.push({ job: e.id, text: need.askMonth ? `${name}: which month the pay in ${need.docName} applies from` : `${name}: how big the hike in ${need.docName} was` });
+    for (const d of e.docs.filter((x) => x.facts?.yearGuess)) out.push({ job: e.id, text: `${name}: which year the date in ${d.name} is` });
     const exitQ = exitQuestionFor(e, k, n);
     if (exitQ) out.push({ job: e.id, text: exitQ });
     if (e.startSource === 'default') out.push({ job: e.id, text: `${name}: your joining date` });

@@ -68,9 +68,13 @@ export function stageTds(
     );
     const tax = taxOn(taxable, t).total;
     const previousTds = prevIn ? prev!.tds : 0;
-    const monthsLeft = unaware ? fullYear!.monthsToMarch(l.month) : lines.length - i;
+    // Tax is spread over the months you're paid between joining and leaving: a month with no pay
+    // (all days unpaid) deducts nothing, and no month deducts more than it pays.
+    const paid = (x: MonthLine) => x.gross > 0;
+    const monthsLeft = unaware ? fullYear!.monthsToMarch(l.month) : Math.max(1, lines.slice(i).filter(paid).length);
     const isKnown = known[l.month] !== undefined && known[l.month] !== null && !Number.isNaN(known[l.month]);
-    const tds = isKnown ? known[l.month] : Math.max(0, (tax - previousTds - deducted) / monthsLeft);
+    const cash = Math.max(0, l.gross - (l.noncash ?? 0) - l.epf - l.pt - l.nps - l.recoveries);
+    const tds = isKnown ? known[l.month] : paid(l) ? Math.min(cash, Math.max(0, (tax - previousTds - deducted) / monthsLeft)) : 0;
     rows.push({ month: l.month, projectedIncome, taxable, tax, previousTds, alreadyDeducted: deducted, monthsLeft, tds, known: isKnown });
     deducted += tds;
     l.tds = tds;

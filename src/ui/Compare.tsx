@@ -21,7 +21,7 @@ const long = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString('en-IN'
 /** Replace the job you're joining (it hasn't started), or add the offer after the job you have. */
 export const compareMode = (s: Scenario): 'replace' | 'add' => {
   const last = s.employers[s.employers.length - 1];
-  return s.employers.length > 1 && last.start > s.today ? 'replace' : 'add';
+  return last.start > s.today ? 'replace' : 'add';
 };
 
 /** When you'd join an offer with no date: after your notice period, or in two months. */
@@ -57,7 +57,8 @@ export function withOffer(s: Scenario, alt: Employment): { s: Scenario; note?: s
   const employers = kept.map((e, i) => {
     if (i !== kept.length - 1 || e.totalsOnly) return e;
     if (e.end && e.end < start) return e;
-    const out: Employment = { ...e, end: dayBefore(start), endSource: 'assumed', fnf: e.fnf ?? { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 } };
+    // Not resigned yet: you'd resign today, so any notice you can't serve before joining is recovered.
+    const out: Employment = { ...e, end: dayBefore(start), endSource: 'assumed', resignedOn: e.resignedOn ?? (s.today < start ? s.today : undefined), fnf: e.fnf ?? { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 } };
     const short = noticeShortfall(out);
     if (short !== undefined) out.fnf = { ...out.fnf!, noticeDaysRecovered: short, noticeAmount: undefined };
     if (e.end !== out.end) notes.push(`Assumes your last day at ${e.name || 'your job'} is ${long(out.end)}.`);

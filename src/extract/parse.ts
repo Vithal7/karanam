@@ -552,7 +552,8 @@ export function findEmployer(text: string): string | undefined {
   const joined = text.replace(/([A-Za-z&.)'’-])[ \t]*\n[ \t]*((Private|PRIVATE|Pvt|PVT)\b|Limited\b|LIMITED\b|Ltd\b|LTD\b|LLP\b)/g, '$1 $2');
   const lines = joined.split(/\n/);
   const cands = new Map<string, { name: string; score: number }>();
-  const run = "((?:[A-Z0-9][\\w&.'’-]*[ \\t]+){1,5}?)";
+  // "Larsen & Toubro Limited": a lone "&" joins two words of the name.
+  const run = "((?:[A-Z0-9][\\w&.'’-]*[ \\t]+)(?:(?:[A-Z0-9][\\w&.'’-]*|&)[ \\t]+){0,4}?)";
   lines.forEach((line, i) => {
     for (const [suffix, weight] of [[SUFFIX_RE, 3], [WEAK_SUFFIX_RE, 1]] as const) {
       const re = new RegExp(run + suffix, 'g');

@@ -9,7 +9,6 @@ import { companyKey } from './extract/facts';
 import { assignDocs, blankJob, docFromText, docsFromText, orderJobs } from './extract/intake';
 import { applyDocs, mergeDocs, baseDocs } from './extract/merge';
 import { isNote } from './extract/note';
-import { parseText } from './extract/parse';
 import { type Rules } from './rules';
 import { activeRules, watchRules } from './rules/update';
 import {
@@ -151,7 +150,9 @@ export function App() {
 
   const setJob = (e: Employment) =>
     setSt((x) => {
-      const employers = x.scenario.employers.map((j) => (j.id === e.id ? e : j));
+      // Once you've worked on a job (typed figures, answered its questions) it's yours: it no longer
+      // goes away with its files.
+      const employers = x.scenario.employers.map((j) => (j.id === e.id ? { ...e, fromFiles: undefined } : j));
       return { ...x, scenario: { ...x.scenario, employers, fy: fyFor(x.scenario.today, employers) } };
     });
 
@@ -161,7 +162,7 @@ export function App() {
   const ingestInto = (x: AppState, files: ReadFile[]): AppState => {
     {
       // A typed note can describe two jobs (the offer and the job you're leaving): one record each.
-      const read = files.map((f) => ({ f, ...docsFromText(f.text, f.name) }));
+      const read = files.map((f) => ({ f, ...docsFromText(f.text, f.name, f.typed) }));
       const docs = read.flatMap((r) => r.docs);
       const texts = Object.fromEntries(read.flatMap((r) => r.docs.map((d) => [d.id, r.f.text])));
       const alts = read.flatMap((r) => r.alternatives).map((d) => offerJob(d, x.scenario.fy));
@@ -185,7 +186,7 @@ export function App() {
   const addAlternatives = (files: ReadFile[]) =>
     setSt((x) => {
       const offers = files.flatMap((f) => {
-        const r = docsFromText(f.text, f.name);
+        const r = docsFromText(f.text, f.name, f.typed);
         return [...r.docs.filter((d) => d.kind === 'offer'), ...r.alternatives];
       });
       return { ...x, alternatives: [...(x.alternatives ?? []), ...offers.map((d) => offerJob(d, x.scenario.fy))] };
@@ -206,11 +207,11 @@ export function App() {
 
   const assign = (docId: string, target: string) =>
     setSt((x) => {
-      const doc = x.inbox.find((d) => d.id === docId)!;
+      const doc = { ...x.inbox.find((d) => d.id === docId)!, similarTo: undefined };
       let employers = x.scenario.employers;
       let id = target;
       if (target === 'new') {
-        const j = blankJob(doc.employer || `Job ${employers.length + 1}`, fyStart(x.scenario.fy));
+        const j = { ...blankJob(doc.employer || `Job ${employers.length + 1}`, fyStart(x.scenario.fy)), fromFiles: true };
         employers = [j, ...employers];
         id = j.id;
       }
@@ -232,10 +233,10 @@ export function App() {
   const addFilesTo = (id: string, files: ReadFile[]) =>
     setSt((x) => {
       const job = x.scenario.employers.find((j) => j.id === id);
-      const read = files.map((f) => ({ f, ...(isNote(f.text) ? docsFromText(f.text, f.name) : { docs: [docFromText(f.text, f.name)], alternatives: [] as DocRecord[] }) }));
+      const read = files.map((f) => ({ f, ...(f.typed || isNote(f.text) ? docsFromText(f.text, f.name, f.typed) : { docs: [docFromText(f.text, f.name)], alternatives: [] as DocRecord[] }) }));
       const elsewhere = (d: DocRecord) =>
         d.kind === 'offer' &&
-        isNote(d.text ?? '') &&
+        (d.typed || isNote(d.text ?? '')) &&
         !!job &&
         ((!!d.employer && companyKey(d.employer) !== companyKey(job.name) && !companyKey(job.name).startsWith(companyKey(d.employer))) || (!!d.doj && !!job.start && Math.abs(Date.parse(d.doj) - Date.parse(job.start)) > 45 * 86_400_000));
       const mine = read.flatMap((r) => r.docs.filter((d) => !elsewhere(d)));
@@ -264,16 +265,39 @@ export function App() {
   const editText = (jobId: string, docId: string, text: string) => {
     const doc = st.scenario.employers.find((j) => j.id === jobId)?.docs.find((d) => d.id === docId);
     if (!doc) return;
-    if (isNote(text) || isNote(doc.text ?? '')) {
+    if (doc.typed || isNote(text) || isNote(doc.text ?? '')) {
       const old = doc.text;
       const name = doc.name.replace(/\s*\(.*\)$/, '');
-      // One step: the note's old records out, the new ones in, so a job it still describes stays.
-      setSt((x) => {
-        const employers = x.scenario.employers.map((j) => ({ ...j, docs: j.docs.filter((d) => d.id !== docId && !(old && d.text === old)) }));
-        const cleared = { ...x, scenario: { ...x.scenario, employers }, alternatives: (x.alternatives ?? []).filter((a) => !a.docs.some((d) => old && d.text === old)) };
-        const next = ingestInto(cleared, [{ name, text, x: parseText(text) }]);
-        return rebuild(next, next.scenario.employers.map((j) => j.id), rules);
+      const x = st;
+      // Where the note's records were: each new record of the same kind goes back to that job.
+      const home = new Map<string, string>();
+      for (const j of x.scenario.employers) for (const d of j.docs) if (d.id === docId || (old && d.text === old)) home.set(d.kind, j.id);
+      const employers = x.scenario.employers.map((j) => ({ ...j, docs: j.docs.filter((d) => d.id !== docId && !(old && d.text === old)) }));
+      const r = docsFromText(text, name, doc.typed);
+      const stay = r.docs.filter((d) => home.has(d.kind) && (!d.employer || companyKey(d.employer) === companyKey(x.scenario.employers.find((j) => j.id === home.get(d.kind))!.name) || !x.scenario.employers.some((j) => companyKey(j.name) === companyKey(d.employer))));
+      const move = r.docs.filter((d) => !stay.includes(d));
+      // A company renamed in the note ("BP" -> "Shell India") renames its job; your answers stay.
+      let next = employers.map((j) => {
+        const mine = stay.filter((d) => home.get(d.kind) === j.id);
+        const renamed = mine.find((d) => d.employer && companyKey(d.employer) !== companyKey(j.name))?.employer;
+        return { ...j, ...(renamed ? { name: renamed } : {}), docs: [...j.docs, ...mine] };
       });
+      let inbox = x.inbox;
+      if (move.length) {
+        const a = assignDocs(next, move, x.scenario.fy);
+        next = a.employers;
+        inbox = [...inbox, ...a.unassigned];
+      }
+      // A job the note no longer mentions: ask before it goes.
+      const emptied = x.scenario.employers.filter((j) => j.docs.length && next.find((n) => n.id === j.id)?.docs.length === 0);
+      if (emptied.length) {
+        const names = emptied.map((j) => j.name || 'a job').join(' and ');
+        const drop = confirm(`Your edited text no longer mentions ${names}. Remove ${emptied.length === 1 ? 'it' : 'them'} from your timeline? Cancel keeps ${emptied.length === 1 ? 'it' : 'them'} with what you've entered.`);
+        next = next.map((j) => (emptied.some((e) => e.id === j.id) ? { ...j, fromFiles: drop ? true : undefined } : j));
+      }
+      const alts = r.alternatives.map((d) => offerJob(d, x.scenario.fy));
+      const cleared = { ...x, inbox, scenario: { ...x.scenario, employers: next }, alternatives: [...(x.alternatives ?? []).filter((a) => !a.docs.some((d) => old && d.text === old)), ...alts] };
+      setSt(rebuild(cleared, next.map((j) => j.id), rules));
       return;
     }
     setSt((x) => {
@@ -281,6 +305,11 @@ export function App() {
       return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [jobId], rules);
     });
   };
+  const patchDoc = (jobId: string, docId: string, patch: Partial<DocRecord>) =>
+    setSt((x) => {
+      const employers = x.scenario.employers.map((j) => (j.id === jobId ? { ...j, docs: j.docs.map((d) => (d.id === docId ? { ...d, ...patch } : d)) } : j));
+      return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [jobId], rules);
+    });
   const answerHike = (jobId: string, docId: string, facts: Partial<Facts>) =>
     setSt((x) => {
       const employers = x.scenario.employers.map((j) =>
@@ -452,6 +481,7 @@ export function App() {
               notes={st.notes}
               needs={st.needs}
               onAnswerHike={answerHike}
+              onPatchDoc={patchDoc}
               onChangeJob={setJob}
               inbox={st.inbox}
               onAssign={assign}

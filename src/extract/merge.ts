@@ -216,6 +216,9 @@ export function applyDocs(
       out.startSource = 'approx';
     }
   }
+  // Only a typed "current CTC 24 LPA" and no letter: that's the CTC to split.
+  const current = docs.find((d) => d.kind === 'appraisal' && d.facts?.currentCtc && d.facts.revisedCtc);
+  if (!base.ctc && current && !docs.some((d) => d.kind === 'offer' || d.kind === 'payslip')) base.ctc = current.facts!.revisedCtc!;
   if (base.ctc) out.ctc = base.ctc;
   if (base.basic !== undefined) out.splitGuessed = false;
   // Only a CTC, no breakup: a typical split (basic half of the fixed pay, HRA half of basic, the

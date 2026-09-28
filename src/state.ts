@@ -28,7 +28,7 @@ export interface AppState {
   /** Files that aren't about this financial year (old jobs, last year's tax sheet), and why. */
   aside: AsideDoc[];
   /** Per job: appraisal letters whose hike size we need from the user. */
-  needs: Record<string, { docId: string; docName: string; month: string }[]>;
+  needs: Record<string, { docId: string; docName: string; month: string; askMonth?: boolean }[]>;
   /** Per job: total TDS deducted so far this FY (from the latest payslip). */
   tdsSoFar: Record<string, number | null>;
   /** Per job: the date the year-to-date TDS is as of (the payslip's month). */

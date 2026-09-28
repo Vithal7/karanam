@@ -40,7 +40,7 @@ export interface EventsResult {
   /** Plain-language notes for the story view (assumptions, stale letters). */
   notes: string[];
   /** Appraisal letters whose hike size we couldn't read: ask the user. */
-  needs: { docId: string; docName: string; month: string }[];
+  needs: { docId: string; docName: string; month: string; askMonth?: boolean }[];
 }
 
 export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string): EventsResult {
@@ -50,8 +50,12 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
   const out: Employment = { ...emp, revisions: emp.revisions.filter((r) => r.source !== 'doc:appraisal' && !r.source?.startsWith('doc:appraisal')) };
 
   // --- Hikes from appraisal letters, oldest first ---
-  const appraisals = docs
-    .filter((d) => d.kind === 'appraisal')
+  // A typed "current CTC" with no letter to compare against is the job's pay itself (see merge).
+  const hasPayDoc = docs.some((d) => d.kind === 'offer' || d.kind === 'payslip');
+  const all = docs.filter((d) => d.kind === 'appraisal' && !(d.facts?.currentCtc && !hasPayDoc));
+  // A hike with no date: ask which month it started from.
+  for (const d of all) if (!d.facts?.effectiveFrom && !d.docDate) needs.push({ docId: d.id, docName: d.name, month: '', askMonth: true });
+  const appraisals = all
     .map((d) => ({ d, from: monthOf(d.facts?.effectiveFrom ?? d.docDate ?? '') }))
     .filter((x) => x.from)
     .sort((a, b) => a.from.localeCompare(b.from));

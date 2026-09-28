@@ -73,12 +73,20 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
  * One file's records. A note you typed ("got an offer from BP... resigned on 3rd Sept, LWD 11
  * Nov") becomes the new offer and the exit from your current job; anything else is one record.
  */
-export function docsFromText(text: string, name: string): { docs: DocRecord[]; alternatives: DocRecord[]; warnings?: string[] } {
-  if (isNote(text)) {
+export function docsFromText(text: string, name: string, typed = false): { docs: DocRecord[]; alternatives: DocRecord[]; warnings?: string[] } {
+  // Text you typed or pasted is your own words, whatever it mentions; a file is a note only if it reads like one.
+  if (typed || isNote(text)) {
     const n = parseNote(text, name);
-    const typed = (d: DocRecord) => (d.employer ? { ...d, employerTyped: true } : d);
-    const docs = [n.offer, n.current, n.exit, n.hike].filter((d): d is DocRecord => !!d).map(withinLimits).map(typed);
-    if (docs.length) return { docs, alternatives: n.alternatives.map(withinLimits).map(typed), warnings: n.warnings };
+    const mark = (d: DocRecord): DocRecord => ({ ...d, ...(d.employer ? { employerTyped: true } : {}), ...(typed ? { typed: true } : {}) });
+    const docs = [n.offer, n.current, n.exit, n.hike].filter((d): d is DocRecord => !!d);
+    if (typed) {
+      // A pasted salary table: the letter reader gets its rows right; the note keeps company and dates.
+      const letter = docFromText(text, name);
+      const target = n.offer ?? (n.current?.kind === 'offer' ? n.current : undefined);
+      if (target && letter.fields.basic && !target.fields.basic) target.fields = { ...target.fields, ...letter.fields };
+      if (!docs.length) return { docs: [mark(letter)], alternatives: [] };
+    }
+    if (docs.length) return { docs: docs.map(withinLimits).map(mark), alternatives: n.alternatives.map(withinLimits).map(mark), warnings: n.warnings };
   }
   return { docs: [docFromText(text, name)], alternatives: [] };
 }
@@ -126,7 +134,7 @@ export function blankJob(name: string, start: string): Employment {
 }
 
 const FILE_STOP = new Set(
-  'letter offer appointment appraisal salary revision revised increment hike payslip pay slip final settlement fnf full and resignation acceptance accepted relieving experience copy scan scanned doc docx pdf jpg jpeg png image img the for new old signed version annexure compensation ctc employee email mail from dated latest updated month statement'.split(' '),
+  'letter offer appointment appraisal salary revision revised increment hike payslip pay slip final settlement fnf full and resignation acceptance accepted relieving experience copy scan scanned doc docx pdf jpg jpeg png image img the for new old signed version annexure compensation ctc employee email mail from dated latest updated month statement pasted text note leaving current your job'.split(' '),
 );
 
 /** Distinctive words in a file name ("Priya Acme Appointment Letter (1).pdf" -> priya, acme). */
@@ -214,10 +222,21 @@ export function assignDocs(
   const ordered = [...docs].sort((a, b) => rank(a) - rank(b) || (docWhen(a) ?? '').localeCompare(docWhen(b) ?? ''));
   for (const d of ordered) {
     let key = companyKey(d.employer);
-    const match = d.employerWeak ? matchesWeak : d.employerTyped ? matchesTyped : matches;
+    // A name typed in a note may be short ("Suzlon Energy" for the letter's full name), whichever came first.
+    const matchFor = (e: Employment) => (d.employerWeak ? matchesWeak : d.employerTyped || e.docs.some((x) => x.employerTyped) ? matchesTyped : matches);
     // Two offers with joining dates far apart are two jobs, whatever their names.
     const sameStart = (e: Employment) => d.kind !== 'offer' || !d.doj || !e.docs.some((x) => x.kind === 'offer' && x.doj && Math.abs(daysApart(x.doj, d.doj!)) > 45);
-    let target = key ? jobs.find((e) => match(key, jobKeys(e)) && sameStart(e)) : undefined;
+    let target = key ? jobs.find((e) => matchFor(e)(key, jobKeys(e)) && sameStart(e)) : undefined;
+    // A close name ("Suzlon Energy Limited" for "Suzlon Global Services Limited"): the same employer
+    // after a merger, rename or internal transfer, or a different job? You say.
+    if (!target && key && !d.employerWeak) {
+      const first = key.split(' ')[0];
+      const near = jobs.find((e) => !isBlank(e) && e.docs.length && [...jobKeys(e)].some((k) => k.split(' ')[0] === first));
+      if (near && first.length >= 3) {
+        unassigned.push({ ...d, similarTo: near.id });
+        continue;
+      }
+    }
     // A company guessed from an email domain that matches no job is dropped: place it by date.
     if (!target && d.employerWeak) {
       key = '';
@@ -322,7 +341,9 @@ export function checkTimeline(jobs: Employment[], fy: number): { employers: Empl
       // Only a later job with its own salary papers can push this one out: never set aside a
       // job's salary for a job that exists only through an email or a resignation.
       const salaried = (o: Employment) => o.docs.some((d) => (d.kind === 'offer' && (d.doj || d.docDate)) || d.kind === 'appraisal' || d.kind === 'payslip');
-      const later = out.find((o) => o !== e && !isBlank(o) && salaried(o) && companyKey(o.name) !== companyKey(e.name) && (starts.get(o.id) ?? '') > start && (starts.get(o.id) ?? '') <= from);
+      // A job whose start is only the placeholder 1 April (no joining date anywhere) can't either.
+      const knownStart = (o: Employment) => o.startSource !== 'default' || o.docs.some((d) => d.kind === 'offer' && d.doj);
+      const later = out.find((o) => o !== e && !isBlank(o) && salaried(o) && knownStart(o) && companyKey(o.name) !== companyKey(e.name) && (starts.get(o.id) ?? '') > start && (starts.get(o.id) ?? '') <= from);
       if (later) reason = `You joined ${later.name} on ${long(starts.get(later.id)!)}, before ${fyName(year)} began, so this is from an earlier job.`;
     }
     if (!reason || e.docs.some((d) => d.keep)) return true;

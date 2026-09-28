@@ -107,9 +107,10 @@ describe('6. similar names are different companies', () => {
     const r = assignDocs([blankJob('New job', '2026-04-01')], [offer('Tech Mahindra Limited', '1st June 2024'), offer('Mahindra & Mahindra Limited', '1st December 2026')], 2026);
     expect(r.employers.length).toBe(2);
   });
-  it('Infosys and Infosys BPM', () => {
+  it('Infosys and Infosys BPM: you are asked whether it is the same employer', () => {
     const r = assignDocs([blankJob('New job', '2026-04-01')], [offer('Infosys Limited', '1st June 2024'), offer('Infosys BPM Limited', '1st December 2026')], 2026);
-    expect(r.employers.length).toBe(2);
+    expect(r.employers.length).toBe(1);
+    expect(r.unassigned.map((d) => d.similarTo)).toEqual([r.employers[0].id]);
   });
 });
 

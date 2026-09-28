@@ -216,6 +216,13 @@ export interface Facts {
   joiningClawbackMonths?: number;
   /** Repayment terms of a joining or retention bonus, as the letter states them. */
   clawbackTerms?: Partial<Record<'joining' | 'retention', ClawbackTerms>>;
+  /**
+   * A date written without a year ("LWD 31 March") where either year is plausible: the one used,
+   * and the choices to ask about.
+   */
+  yearGuess?: { field: 'lastWorkingDay' | 'doj' | 'resignationDate' | 'effectiveFrom'; options: string[] };
+  /** A typed "current CTC": your pay now, not a hike letter. */
+  currentCtc?: boolean;
   /** Relocation support in an offer letter. */
   relocation?: { amount?: number; reimbursement: boolean };
   /** Employer's TAN (on Form 16, payslips, tax sheets), for the ITR's TDS schedule. */
@@ -260,6 +267,10 @@ export interface DocRecord {
   employerWeak?: boolean;
   /** The company was typed in a note ("offer from Zeta"): may be a short form of the full name. */
   employerTyped?: boolean;
+  /** Read from text you typed or pasted, not a file. */
+  typed?: boolean;
+  /** Its company is close to this job's (a shared first word): you say whether it's the same employer. */
+  similarTo?: string;
   ytdTds?: number;
   facts?: Facts;
   /** The file's text, so it can be re-read if its type is corrected. */

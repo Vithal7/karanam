@@ -13,7 +13,7 @@ import { useRules } from '../rulesContext';
 import { ExitQuestion, exitQuestionFor } from '../ExitQuestion';
 import { OverlapFix } from '../OverlapFix';
 import { PrevVariableQuestion, needsPrevVariable } from '../PrevVariable';
-import { Money, Percent } from '../controls';
+import { Money, MonthInput, Percent } from '../controls';
 import { Timeline } from '../Timeline';
 import { Uploader, type ReadFile } from '../Uploader';
 import { docHints } from '../docHints';
@@ -30,12 +30,34 @@ export interface HikeNeed {
   docId: string;
   docName: string;
   month: string;
+  /** The hike's date wasn't given: ask which month it applies from. */
+  askMonth?: boolean;
 }
 
 /** Asks for the size of a hike the letter didn't state clearly. */
 function HikeQuestion(props: { need: HikeNeed; onAnswer: (f: Partial<Facts>) => void }) {
   const [ctc, setCtc] = useState(0);
   const [pct, setPct] = useState(0);
+  const [month, setMonth] = useState('');
+  if (props.need.askMonth)
+    return (
+      <div class="callout warn ask">
+        <p>
+          <strong>{props.need.docName}</strong>: from which month does this pay apply? A hike changes every month after it, and any months before it was paid come as arrears.
+        </p>
+        <div class="grid2">
+          <div>
+            <span class="field-label">Applies from</span>
+            <MonthInput value={month} onChange={setMonth} ariaLabel="Hike applies from" />
+          </div>
+          <div class="q-action">
+            <button type="button" class="btn small primary" disabled={!month} onClick={() => props.onAnswer({ effectiveFrom: `${month}-01` })}>
+              Use this month
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   return (
     <div class="callout warn ask">
       <p>
@@ -54,6 +76,35 @@ function HikeQuestion(props: { need: HikeNeed; onAnswer: (f: Partial<Facts>) => 
       <button type="button" class="btn small primary" disabled={!ctc && !pct} onClick={() => props.onAnswer(ctc ? { revisedCtc: ctc } : { incrementPct: pct })}>
         Use this
       </button>
+    </div>
+  );
+}
+
+const FIELD_WORDS: Record<NonNullable<Facts['yearGuess']>['field'], string> = {
+  lastWorkingDay: 'last working day',
+  doj: 'joining date',
+  resignationDate: 'resignation date',
+  effectiveFrom: 'hike date',
+};
+const longDate = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+
+/** A date written without a year, where either year could be meant: which one? */
+function YearQuestion(props: { doc: DocRecord; onAnswer: (patch: Partial<DocRecord>) => void }) {
+  const g = props.doc.facts!.yearGuess!;
+  const pick = (date: string) =>
+    props.onAnswer(g.field === 'doj' ? { doj: date, facts: { ...props.doc.facts, yearGuess: undefined } } : { facts: { ...props.doc.facts, [g.field]: date, yearGuess: undefined } });
+  return (
+    <div class="callout ask exit-q">
+      <p>
+        <strong>Which year is the {FIELD_WORDS[g.field]} in {props.doc.name}?</strong> It's written without a year.
+      </p>
+      <div class="tl-actions">
+        {[...g.options].sort().map((o) => (
+          <button type="button" class="btn small" onClick={() => pick(o)}>
+            {longDate(o)}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -84,6 +135,7 @@ export function StoryStep(props: {
   onRemove: (id: string) => void;
   onAddJob: () => void;
   onAnswerHike: (jobId: string, docId: string, f: Partial<Facts>) => void;
+  onPatchDoc: (jobId: string, docId: string, patch: Partial<DocRecord>) => void;
   onChangeJob: (e: import('../../domain/types').Employment) => void;
   onNext: () => void;
 }) {
@@ -131,10 +183,37 @@ export function StoryStep(props: {
         <EarlierIncomeQuestion first={s.employers[0]} fyLabel={fyLabel(s.fy)} onNone={props.onNoEarlierIncome} onAdd={props.onAddEarlier} />
       )}
 
-      {clarify && props.inbox.length > 0 && (
+      {clarify &&
+        props.inbox
+          .filter((d) => d.similarTo && s.employers.some((e) => e.id === d.similarTo))
+          .map((d) => {
+            const job = s.employers.find((e) => e.id === d.similarTo)!;
+            return (
+              <div class="callout ask exit-q">
+                <p>
+                  <strong>
+                    Is {d.employer} the same employer as {job.name}?
+                  </strong>{' '}
+                  {d.name} names {d.employer}. It could be the same job after a merger, a rename or an internal transfer, or a different job.
+                </p>
+                <div class="tl-actions">
+                  <button type="button" class="btn small primary" onClick={() => props.onAssign(d.id, job.id)}>
+                    Same employer
+                  </button>
+                  {n < MAX_EMPLOYERS && (
+                    <button type="button" class="btn small" onClick={() => props.onAssign(d.id, 'new')}>
+                      A different job
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+      {clarify && props.inbox.some((d) => !d.similarTo || !s.employers.some((e) => e.id === d.similarTo)) && (
         <div class="card conflicts">
           <h3>Which job are these files for?</h3>
-          {props.inbox.map((d) => (
+          {props.inbox.filter((d) => !d.similarTo || !s.employers.some((e) => e.id === d.similarTo)).map((d) => (
             <div class="inbox-row">
               <span class="file-kind">{DOC_KIND_SHORT[d.kind]}</span>
               <span class="file-name">{d.name}</span>
@@ -229,6 +308,7 @@ export function StoryStep(props: {
                 {clarify && e.fnf && !e.leaveConfirmed && !e.fnf.leaveDays && e.fnf.leaveAmount === undefined && (k < n - 1 || !!e.end) && <LeaveQuestion emp={e} onChange={props.onChangeJob} />}
                 {clarify && !e.totalsOnly && (!e.location?.state || e.location.source === 'guess') && <LocationQuestion emp={e} rules={rules} onChange={props.onChangeJob} />}
                 {clarify && needsPrevVariable(e, s.fy) && <PrevVariableQuestion emp={e} fy={s.fy} onChange={props.onChangeJob} />}
+                {clarify && e.docs.filter((d) => d.facts?.yearGuess).map((d) => <YearQuestion doc={d} onAnswer={(p) => props.onPatchDoc(e.id, d.id, p)} />)}
                 {clarify && (props.needs[e.id] ?? []).map((need) => (
                   <HikeQuestion need={need} onAnswer={(f) => props.onAnswerHike(e.id, need.docId, f)} />
                 ))}

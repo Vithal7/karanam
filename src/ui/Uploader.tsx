@@ -6,6 +6,8 @@ export interface ReadFile {
   name: string;
   text: string;
   x: Extracted;
+  /** Typed or pasted by you, not a file: read as your own words. */
+  typed?: boolean;
 }
 
 /** File picker + drop zone. Reads one or more files on the device, then hands back what it found. */
@@ -25,15 +27,16 @@ export function Uploader(props: {
   const [pasted, setPasted] = useState('');
 
   function readPasted() {
-    if (pasted.trim().length < 40) {
-      setErrors(['That looks too short. Paste the whole letter or email.']);
+    // A typed note can be short ("hiked to 19 LPA from July"); anything shorter says nothing.
+    if (pasted.trim().length < 12) {
+      setErrors(['That looks too short. Paste the letter, or write a line like "offer from Zeta, 20 LPA, joining 1 Dec".']);
       return;
     }
     const x = parseText(pasted);
     setErrors([]);
     setPasting(false);
     setPasted('');
-    props.onFiles([{ name: 'Pasted text', text: pasted, x }]);
+    props.onFiles([{ name: 'Pasted text', text: pasted, x, typed: true }]);
   }
 
   async function handle(list: FileList | null | undefined) {

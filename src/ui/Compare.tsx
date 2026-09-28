@@ -56,7 +56,9 @@ export function withOffer(s: Scenario, alt: Employment): { s: Scenario; note?: s
   // The job you leave ends the day before; with your resignation date, its notice shortfall follows.
   const employers = kept.map((e, i) => {
     if (i !== kept.length - 1 || e.totalsOnly) return e;
-    if (e.end && e.end < start) return e;
+    // A last day from your papers or you stays; an assumed one (the day before the job in your
+    // timeline) moves to the day before this offer.
+    if (e.end && e.end < start && e.endSource !== 'assumed') return e;
     // Not resigned yet: you'd resign today, so any notice you can't serve before joining is recovered.
     const out: Employment = { ...e, end: dayBefore(start), endSource: 'assumed', resignedOn: e.resignedOn ?? (s.today < start ? s.today : undefined), fnf: e.fnf ?? { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0 } };
     const short = noticeShortfall(out);

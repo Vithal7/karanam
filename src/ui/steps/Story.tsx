@@ -185,16 +185,18 @@ export function StoryStep(props: {
 
       {clarify &&
         props.inbox
-          .filter((d) => d.similarTo && s.employers.some((e) => e.id === d.similarTo))
+          .filter((d, i, all) => d.similarTo && s.employers.some((e) => e.id === d.similarTo) && all.findIndex((x) => x.similarKey === d.similarKey) === i)
           .map((d) => {
             const job = s.employers.find((e) => e.id === d.similarTo)!;
+            const files = props.inbox.filter((x) => x.similarKey === d.similarKey);
             return (
               <div class="callout ask exit-q">
                 <p>
                   <strong>
                     Is {d.employer} the same employer as {job.name}?
                   </strong>{' '}
-                  {d.name} names {d.employer}. It could be the same job after a merger, a rename or an internal transfer, or a different job.
+                  {files.length === 1 ? `${d.name} names` : `${files.length} files (${files.map((x) => x.name).join(', ')}) name`} {d.employer}. It could be the same job after a merger, a rename or an internal
+                  transfer, or a different job. Your answer applies to all of them.
                 </p>
                 <div class="tl-actions">
                   <button type="button" class="btn small primary" onClick={() => props.onAssign(d.id, job.id)}>

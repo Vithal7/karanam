@@ -50,10 +50,12 @@ interface Amount {
   perYear?: boolean;
   /** Written without a unit or commas ("34.2"): small figures are lakhs. */
   bare?: boolean;
+  /** Written as "LPA": a whole year's pay, not an amount added to it. */
+  lpa?: boolean;
 }
 
 const AMT_SRC =
-  '(?:₹|rs\\.?|inr)?\\s*(\\d{1,3}(?:,\\d{2,3})+|\\d+(?:\\.\\d+)?)\\s*(k|l|lakhs?|lacs?|lpa|cr|crores?)?\\b(\\s*%)?((?:\\s*(?:\\/|per|a|p\\.?)\\s*(?:month|mo\\b|m\\b\\.?|annum|year|yr|a\\b\\.?))|\\s+monthly|\\s+pm\\b|\\s+pa\\b|\\s+p\\.a\\.?)?';
+  '(?:₹|rs\\.?|inr)?\\s*(\\d{1,3}(?:,\\d{2,3})+|\\d+(?:\\.\\d+)?)\\s*(k|l|lakhs?|lacs?|lpa|cr|crores?|thousands?)?\\b(\\s*(?:%|per\\s*cent\\b|percent\\b))?((?:\\s*(?:\\/|per|a|p\\.?)\\s*(?:month|mo\\b|m\\b\\.?|annum|year|yr|a\\b\\.?))|\\s+monthly|\\s+pm\\b|\\s+pa\\b|\\s+p\\.a\\.?)?';
 
 function toAmount(m: RegExpExecArray | RegExpMatchArray): Amount {
   const v = parseFloat(m[1].replace(/,/g, ''));
@@ -62,15 +64,17 @@ function toAmount(m: RegExpExecArray | RegExpMatchArray): Amount {
   const perYear = /annum|year|yr|\bpa\b|p\.a|\/\s*a\b|per\s+a\b/.test(period) || unit === 'lpa';
   const perMonth = !perYear && /month|mo\b|\bm\b|monthly|pm\b|p\.m/.test(period);
   if (m[3]) return { value: v / 100, pct: true };
-  if (unit === 'k') return { value: Math.round(v * 1_000), perMonth, perYear };
+  if (unit === 'k' || unit.startsWith('thousand')) return { value: Math.round(v * 1_000), perMonth, perYear };
   if (unit.startsWith('cr')) return { value: Math.round(v * 10_000_000), perMonth, perYear: !perMonth };
-  if (unit) return { value: Math.round(v * 100_000), perMonth, perYear: !perMonth };
+  if (unit) return { value: Math.round(v * 100_000), perMonth, perYear: !perMonth, lpa: unit === 'lpa' };
   if (!m[1].includes(',') && v < 1000) return { value: Math.round(v * 100_000), perMonth, perYear: !perMonth, bare: true };
   return { value: Math.round(v), perMonth, perYear };
 }
 
 /** Abbreviations whose full stop doesn't end a sentence ("Rs. 18,00,000", "No. 5"). */
-const ABBR = /(?:^|[^a-z])(rs|no|approx|inr|mr|ms|mrs|dr|pvt|ltd|co|inc|vs|sr|jr|w\.e\.f|e\.f|w\.e)$/i;
+const ABBR = /(?:^|[^a-z])(rs|no|approx|inr|mr|ms|mrs|dr|vs|sr|jr|w\.e\.f|e\.f|w\.e)$/i;
+/** "Pvt." / "Ltd." end a sentence only when a new one starts after them (not "Pvt. Ltd."). */
+const CO_ABBR = /(?:^|[^a-z])(pvt|ltd|co|inc|corp)$/i;
 
 /** Where a sentence or clause ends. A comma between digits is part of a number ("34,20,000"). */
 function breakAt(t: string, k: number): boolean {
@@ -81,6 +85,10 @@ function breakAt(t: string, k: number): boolean {
   if (k + 1 < t.length && !/\s/.test(t[k + 1])) return false;
   const before = t.slice(Math.max(0, k - 8), k);
   if (ABBR.test(before)) return false;
+  if (CO_ABBR.test(before)) {
+    const next = /^\s+(\S+)/.exec(t.slice(k + 1, k + 20))?.[1] ?? '';
+    return /^[A-Z]/.test(next) && !/^(ltd|limited|pvt|private|co|inc)\b/i.test(next);
+  }
   // "p.a." / "p.m." end a sentence only when a new one starts after them.
   if (/p\.[am]$/i.test(before)) return /^\s+[A-Z]/.test(t.slice(k + 1, k + 3));
   return true;
@@ -111,8 +119,10 @@ function sentencesOf(t: string): string[] {
 }
 
 /** About the job you have, not the offer: "my current CTC", "present salary". */
-const ABOUT_NOW = /\b(current(ly)?|present|existing|previous|old|last\s+year)\b/i;
-const HIKE_WORD = /\b(hike[ds]?|hiked|increment(?:ed)?|revised|revision|raise[ds]?|appraisal|promot(?:ed|ion))\b/i;
+const ABOUT_NOW = /\b(current(ly)?|present|existing|previous|old|last\s+year|now)\b/i;
+const HIKE_WORD = /\b(hike[ds]?|hiked|increment(?:ed)?|revised|revision|raise[ds]?|appraisal|promot(?:ed|ion)|increased|new\s+(?:ctc|salary|package|pay))\b/i;
+/** "50% hike over current": the size of an offer, not a hike at your job. */
+const OVER_CURRENT = /(\d{1,3}(?:\.\d+)?)\s*(?:%|per\s*cent|percent)\s*(?:hike|increase|jump|more)?\s*(?:over|on|than|from|above)\s+(?:my\s+|the\s+)?(?:current|present|existing)|(?:hike|increase|jump)\s+(?:of\s+)?(\d{1,3}(?:\.\d+)?)\s*(?:%|per\s*cent|percent)\s*(?:over|on|than|from|above)\s+(?:my\s+|the\s+)?(?:current|present|existing)/i;
 const OFFER_WORD = /\b(offers?|offered|offering|joining|join|switch(?:ing)?|new\s+(?:job|company|role)|selected|starting\s+at)\b/i;
 
 /**
@@ -125,10 +135,10 @@ function amountNear(t: string, word: string, now = false, allowPct = true): Amou
     const i = w.index ?? 0;
     const j = i + w[0].length;
     const c = clauseAround(t, i, j);
-    if (ABOUT_NOW.test(t.slice(Math.max(c.start, i - 25), j)) !== now) continue;
+    if (ABOUT_NOW.test(t.slice(Math.max(c.start, i - 25), Math.min(c.end, j + 8))) !== now) continue;
     // "monthly salary 1,50,000", "in-hand 80k": a month's figure.
     const monthly = /\b(monthly|per\s+month|a\s+month|in[\s-]?hand|take[\s-]?home)\s*$/i.test(t.slice(Math.max(c.start, i - 20), i));
-    const after = new RegExp(`^\\s*(?:bonus\\s+)?(?:of|is|was|:|=|-|at|around|about|would\\s+be|will\\s+be|to)?\\s*${AMT_SRC}`, 'i').exec(t.slice(j, c.end));
+    const after = new RegExp(`^\\s*(?:bonus\\s+)?(?:of|is|was|:|=|-|at|around|about|would\\s+be|will\\s+be|to)?\\s*(?:now\\s+)?${AMT_SRC}`, 'i').exec(t.slice(j, c.end));
     const before = after ? null : [...t.slice(Math.max(c.start, i - 40), i).matchAll(new RegExp(`${AMT_SRC}\\s*(?:[a-z][a-z-]*\\s+){0,2}$`, 'gi'))].pop();
     const m = after ?? before;
     if (!m) continue;
@@ -249,7 +259,7 @@ const DAY_WORDS = 'mon|monday|tue|tuesday|wed|wednesday|thu|thursday|fri|friday|
 const NOT_CO = `on|in|by|from|at|with|date|bonus|amount|the|a|an|as|and|or|for|of|is|was|will|would|next|this|soon|after|before|letter|me|my|us|we|i|it|there|here|them|company|job|role|position|new|salary|ctc|have|has|had|got|get|also|two|three|another|other|one|offer|offers|offered|both|their|his|her|our|current|currently|present|previous|lpa|fixed|base|variable|joining|joined|resigned|hike|hiked|immediately|expected|tentatively|formalities|asap|shortly|within|probably|likely|around|approximately|end|early|mid|received|details|package|${MONTH_WORDS}|${DAY_WORDS}`;
 const WORD = `(?:(?:pvt|ltd|inc|co)\\.|&|[a-z][\\w-]*)`;
 const NAME = `((?!(?:${NOT_CO})\\b)[a-z][\\w-]*(?:\\s+(?!(?:${NOT_CO}|offering|paying)\\b)${WORD}){0,6}?)`;
-const NAME_END = `(?=\\s*(?:,|\\.(?:\\s|$)|$|:|;|\\(|\\s+(?:(?:with|for|at|on|and|offering|paying|of|is|was|as|in|received|today|yesterday|recently|rs)\\b|-|\\d|₹)))`;
+const NAME_END = `(?=\\s*(?:,|\\.(?:\\s|$)|$|:|;|\\(|\\s+(?:(?:with|for|at|on|and|offering|paying|of|is|was|as|in|from|received|today|yesterday|recently|rs|vs)\\b|-|\\d|₹)))`;
 
 /** Where each offer starts, and whose it is: "offer from BP", "Zeta offer:", "joining Google", "switching to Zeta". */
 function offerMarkers(t: string): { at: number; name: string }[] {
@@ -258,7 +268,9 @@ function offerMarkers(t: string): { at: number; name: string }[] {
     new RegExp(`\\bjoining\\s+${NAME}${NAME_END}`, 'gi'),
     new RegExp(`\\bjoin(?:ing)?\\b[^.,;]{0,30}?\\b(?:at|with)\\s+${NAME}${NAME_END}`, 'gi'),
     new RegExp(`\\b${NAME}\\s+(?:has\\s+|is\\s+)?(?:offered|offering)\\b`, 'gi'),
-    new RegExp(`\\b${NAME}\\s+offer\\s*[:\\-]`, 'gi'),
+    new RegExp(`\\b${NAME}\\s+offer\\b(?!\\s+(?:from|letter|of|to|for)\\b)`, 'gi'),
+    new RegExp(`\\boffer\\s*:\\s*${NAME}${NAME_END}`, 'gi'),
+    new RegExp(`\\bnew\\s+(?:job|role|position|company)\\s+(?:at|with|in)\\s+${NAME}${NAME_END}`, 'gi'),
     new RegExp(`\\bnew\\s+offer\\s*[:\\-]?\\s*(?:from\\s+)?${NAME}${NAME_END}`, 'gi'),
     new RegExp(`\\b(?:switching|moving|shifting)\\s+to\\s+${NAME}${NAME_END}`, 'gi'),
     new RegExp(`\\bstarting\\s+(?:at|with)\\s+${NAME}${NAME_END}`, 'gi'),
@@ -408,7 +420,11 @@ const DOJ = /\bjoin(?:ing)?(?!\s+bonus|\s+amount)\s*(?:date|on|from|by)?\s*(?:is
 function readOffer(seg: string, whole: string | undefined, company: string | undefined, name: string, lwd: string | undefined, raw: string): { doc: DocRecord; warnings: string[] } {
   const facts: Facts = {};
   const opts = lwd ? { after: lwd } : { upcoming: true };
-  const dated = dateAfter(seg, DOJ, opts) ?? (whole ? dateAfter(whole, DOJ, opts) : undefined);
+  const dated =
+    dateAfter(seg, DOJ, opts) ??
+    (whole ? dateAfter(whole, DOJ, opts) : undefined) ??
+    // "New job at BP from 12 Nov 2026"
+    dateAfter(sentencesOf(seg).filter((x) => OFFER_WORD.test(x) || (company && x.toLowerCase().includes(company.toLowerCase()))).join(' '), /\b(?:from|starting|w\.?e\.?f\.?)(?![a-z])/i, opts);
   const doj = dated?.date;
   if (dated?.options) facts.yearGuess = { field: 'doj', options: dated.options };
   const { fields, warnings } = readPay(seg, doj, false, company);
@@ -500,14 +516,20 @@ export function parseNote(text: string, name: string): NoteDocs {
   }
 
   // --- A hike at the job you have: sentences about a hike that aren't about an offer ---
-  const hikeText = sentences.filter((s) => HIKE_WORD.test(s) && !OFFER_WORD.test(s) && !namesOffer(s)).join(' ');
+  const hikeText = sentences.filter((s) => HIKE_WORD.test(s) && !OFFER_WORD.test(s) && !namesOffer(s) && !(offerish && OVER_CURRENT.test(s))).join(' ');
   if (hikeText) {
     const facts: Facts = {};
     const to = amountNear(hikeText, 'to|revised\\s+(?:ctc|salary|package)|new\\s+(?:ctc|salary|package)|ctc|package|salary', false, false);
-    const by = to ? undefined : amountNear(hikeText, 'hike[ds]?|hiked|increment|raise', false);
-    const pct = /(\d{1,2}(?:\.\d+)?)\s*%\s*(?:hike|increment|raise|increase)|(?:hike|increment|raise|increase)\s+(?:of\s+)?(\d{1,2}(?:\.\d+)?)\s*%/i.exec(hikeText);
+    const by = to ? undefined : amountNear(hikeText, 'hike[ds]?|hiked|increment(?:ed)?|raise[ds]?|appraisal|revised|revision|promot(?:ed|ion)|increased', false);
+    const PCT = '(\\d{1,2}(?:\\.\\d+)?)\\s*(?:%|per\\s*cent\\b|percent\\b)';
+    const pct = new RegExp(`${PCT}\\s*(?:hike|increment|raise|increase)|(?:hike[ds]?|hiked|increment(?:ed)?|raise[ds]?|increase[ds]?)\\s+(?:of\\s+|by\\s+)?${PCT}`, 'i').exec(hikeText);
     if (to) facts.revisedCtc = yearly(to, 100_000);
-    else if (by && !by.pct) facts.incrementAmount = yearly(by, 100_000) ?? by.value;
+    else if (by && !by.pct) {
+      // "appraisal: 20 LPA" is the new CTC; "got 2L hike" is what's added.
+      const v = yearly(by, 100_000) ?? by.value;
+      if (by.lpa || v >= 500_000) facts.revisedCtc = v;
+      else facts.incrementAmount = v;
+    }
     if (pct) facts.incrementPct = +(pct[1] ?? pct[2]) / 100;
     const from =
       dateAfter(hikeText, /\b(?:from|effective(?:\s+from)?|w\.?e\.?f\.?|with\s+effect\s+from|starting)(?![a-z])/i) ?? dateAfter(hikeText, /\b(?:hike[ds]?|hiked|increment(?:ed)?|revised|raise[ds]?|appraisal|promot(?:ed|ion))\b\s*(?:in|on)?/i);
@@ -550,6 +572,14 @@ export function parseNote(text: string, name: string): NoteDocs {
   const anchor = lwdAt?.options ? undefined : lwd;
   const read = parts.map((p, i) => readOffer(p.seg, i === 0 ? t : undefined, p.name, name, anchor, raw));
   const real = read.filter((r) => Object.keys(r.doc.fields).length || r.doc.doj || r.doc.employer);
+  // "50% hike over current": the offer's size, from your current CTC when the note gives it.
+  const over = OVER_CURRENT.exec(t);
+  if (over && real.length && !real[0].doc.fields.ctc) {
+    const pct = +(over[1] ?? over[2]) / 100;
+    const now = out.current?.facts?.revisedCtc ?? out.current?.fields.ctc;
+    if (now) real[0].doc.fields.ctc = Math.round(now * (1 + pct));
+    else real[0].doc.facts = { ...real[0].doc.facts, hikeOverCurrent: pct };
+  }
   if (real.length) {
     out.offer = real[0].doc;
     out.warnings = real[0].warnings;

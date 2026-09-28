@@ -60,8 +60,11 @@ function rebuild(x0: AppState, ids: Iterable<string>, rules: Rules): AppState {
   const needs = { ...x.needs };
   const tdsSoFar = { ...x.tdsSoFar };
   const tdsAsOf = { ...(x.tdsAsOf ?? {}) };
-  let employers = x.scenario.employers.map((e) => {
-    if (!todo.has(e.id)) return e;
+  let employers = x.scenario.employers.map((e0, k, all) => {
+    if (!todo.has(e0.id)) return e0;
+    // An offer described as "50% over current": sized from the job before it.
+    const prevCtc = all[k - 1]?.ctc;
+    const e = prevCtc ? { ...e0, docs: e0.docs.map((d) => (d.kind === 'offer' && d.facts?.hikeOverCurrent && !d.fields.ctc ? { ...d, fields: { ...d.fields, ctc: Math.round(prevCtc * (1 + d.facts.hikeOverCurrent)) } } : d)) } : e0;
     const a = applyDocs(e, x.choices[e.id] ?? {}, rules);
     const ev = applyEvents(a.emp, rules, monthOf(fyStart(x.scenario.fy)));
     marks[e.id] = a.marks;
@@ -207,16 +210,19 @@ export function App() {
 
   const assign = (docId: string, target: string) =>
     setSt((x) => {
-      const doc = { ...x.inbox.find((d) => d.id === docId)!, similarTo: undefined };
+      const first = x.inbox.find((d) => d.id === docId)!;
+      // "Same employer?" is asked once per company name: the answer places all its files.
+      const group = first.similarKey ? x.inbox.filter((d) => d.similarKey === first.similarKey) : [first];
+      const docs = group.map((d) => ({ ...d, similarTo: undefined, similarKey: undefined }));
       let employers = x.scenario.employers;
       let id = target;
       if (target === 'new') {
-        const j = { ...blankJob(doc.employer || `Job ${employers.length + 1}`, fyStart(x.scenario.fy)), fromFiles: true };
+        const j = { ...blankJob(first.employer || `Job ${employers.length + 1}`, fyStart(x.scenario.fy)), fromFiles: true };
         employers = [j, ...employers];
         id = j.id;
       }
-      employers = employers.map((e) => (e.id === id ? { ...e, docs: [...e.docs, doc] } : e));
-      return rebuild({ ...x, inbox: x.inbox.filter((d) => d.id !== docId), scenario: { ...x.scenario, employers } }, [id], rules);
+      employers = employers.map((e) => (e.id === id ? { ...e, docs: [...e.docs, ...docs] } : e));
+      return rebuild({ ...x, inbox: x.inbox.filter((d) => !group.includes(d)), scenario: { ...x.scenario, employers } }, [id], rules);
     });
 
   const removeDoc = (id: string, docId: string) =>
@@ -271,14 +277,16 @@ export function App() {
       const x = st;
       // Where the note's records were: each new record of the same kind goes back to that job.
       const home = new Map<string, string>();
-      for (const j of x.scenario.employers) for (const d of j.docs) if (d.id === docId || (old && d.text === old)) home.set(d.kind, j.id);
+      // Keyed by what each record is in the note (offer, your job, leaving it, a hike), not its type.
+      const roleOf = (d: DocRecord) => d.noteRole ?? d.kind;
+      for (const j of x.scenario.employers) for (const d of j.docs) if (d.id === docId || (old && d.text === old)) home.set(roleOf(d), j.id);
       const employers = x.scenario.employers.map((j) => ({ ...j, docs: j.docs.filter((d) => d.id !== docId && !(old && d.text === old)) }));
       const r = docsFromText(text, name, doc.typed);
-      const stay = r.docs.filter((d) => home.has(d.kind) && (!d.employer || companyKey(d.employer) === companyKey(x.scenario.employers.find((j) => j.id === home.get(d.kind))!.name) || !x.scenario.employers.some((j) => companyKey(j.name) === companyKey(d.employer))));
+      const stay = r.docs.filter((d) => home.has(roleOf(d)) && (!d.employer || companyKey(d.employer) === companyKey(x.scenario.employers.find((j) => j.id === home.get(roleOf(d)))!.name) || !x.scenario.employers.some((j) => companyKey(j.name) === companyKey(d.employer))));
       const move = r.docs.filter((d) => !stay.includes(d));
       // A company renamed in the note ("BP" -> "Shell India") renames its job; your answers stay.
       let next = employers.map((j) => {
-        const mine = stay.filter((d) => home.get(d.kind) === j.id);
+        const mine = stay.filter((d) => home.get(roleOf(d)) === j.id);
         const renamed = mine.find((d) => d.employer && companyKey(d.employer) !== companyKey(j.name))?.employer;
         return { ...j, ...(renamed ? { name: renamed } : {}), docs: [...j.docs, ...mine] };
       });

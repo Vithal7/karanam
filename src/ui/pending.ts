@@ -23,7 +23,7 @@ export interface Pending {
 export function pendingItems(st: AppState, s: Scenario, rules: Rules, openConflicts: (e: Employment) => number): Pending[] {
   const out: Pending[] = [];
   const n = s.employers.length;
-  for (const d of st.inbox.filter((x) => x.similarTo && s.employers.some((e) => e.id === x.similarTo)))
+  for (const d of st.inbox.filter((x, i, all) => x.similarTo && s.employers.some((e) => e.id === x.similarTo) && all.findIndex((y) => y.similarKey === x.similarKey) === i))
     out.push({ text: `Is ${d.employer} the same employer as ${s.employers.find((e) => e.id === d.similarTo)!.name}?` });
   const plain = st.inbox.filter((x) => !x.similarTo || !s.employers.some((e) => e.id === x.similarTo)).length;
   if (plain) out.push({ text: `Which job ${plain === 1 ? 'a file is' : `${plain} files are`} for` });

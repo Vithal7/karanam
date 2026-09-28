@@ -223,6 +223,8 @@ export interface Facts {
   yearGuess?: { field: 'lastWorkingDay' | 'doj' | 'resignationDate' | 'effectiveFrom'; options: string[] };
   /** A typed "current CTC": your pay now, not a hike letter. */
   currentCtc?: boolean;
+  /** An offer described as a hike over your current pay ("50% over current"): sized from the job you leave. */
+  hikeOverCurrent?: number;
   /** Relocation support in an offer letter. */
   relocation?: { amount?: number; reimbursement: boolean };
   /** Employer's TAN (on Form 16, payslips, tax sheets), for the ITR's TDS schedule. */
@@ -271,6 +273,10 @@ export interface DocRecord {
   typed?: boolean;
   /** Its company is close to this job's (a shared first word): you say whether it's the same employer. */
   similarTo?: string;
+  /** The company name asked about: one answer covers every file with it. */
+  similarKey?: string;
+  /** What this record is in the note it came from: the offer, your current job, leaving it, a hike. */
+  noteRole?: 'offer' | 'current' | 'exit' | 'hike' | 'alternative';
   ytdTds?: number;
   facts?: Facts;
   /** The file's text, so it can be re-read if its type is corrected. */

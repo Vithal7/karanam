@@ -78,15 +78,17 @@ export function docsFromText(text: string, name: string, typed = false): { docs:
   if (typed || isNote(text)) {
     const n = parseNote(text, name);
     const mark = (d: DocRecord): DocRecord => ({ ...d, ...(d.employer ? { employerTyped: true } : {}), ...(typed ? { typed: true } : {}) });
-    const docs = [n.offer, n.current, n.exit, n.hike].filter((d): d is DocRecord => !!d);
+    const role = (d: DocRecord | undefined, r: NonNullable<DocRecord['noteRole']>): DocRecord | undefined => (d ? { ...d, noteRole: r } : undefined);
+    const docs = [role(n.offer, 'offer'), role(n.current, 'current'), role(n.exit, 'exit'), role(n.hike, 'hike')].filter((d): d is DocRecord => !!d);
     if (typed) {
       // A pasted salary table: the letter reader gets its rows right; the note keeps company and dates.
       const letter = docFromText(text, name);
-      const target = n.offer ?? (n.current?.kind === 'offer' ? n.current : undefined);
+      const target = docs.find((d) => d.noteRole === 'offer') ?? docs.find((d) => d.noteRole === 'current' && d.kind === 'offer');
       if (target && letter.fields.basic && !target.fields.basic) target.fields = { ...target.fields, ...letter.fields };
-      if (!docs.length) return { docs: [mark(letter)], alternatives: [] };
+      // Words we couldn't place: never a job of their own. Without a date or company, you pick the job.
+      if (!docs.length) return { docs: [mark({ ...letter, doj: undefined, docDate: undefined, employer: undefined })], alternatives: [] };
     }
-    if (docs.length) return { docs: docs.map(withinLimits).map(mark), alternatives: n.alternatives.map(withinLimits).map(mark), warnings: n.warnings };
+    if (docs.length) return { docs: docs.map(withinLimits).map(mark), alternatives: n.alternatives.map(withinLimits).map((d) => mark({ ...d, noteRole: 'alternative' })), warnings: n.warnings };
   }
   return { docs: [docFromText(text, name)], alternatives: [] };
 }
@@ -195,7 +197,8 @@ export function assignDocs(
   const known = () => [...new Set([...jobs.flatMap((e) => [e.name, ...e.docs.map((d) => d.employer ?? '')]), ...docs.map((d) => d.employer ?? '')].filter((n) => n && !DEFAULT_NAME.test(n)))];
 
   // Company from the file name or the text, when the letterhead didn't give it.
-  for (const d of docs) if (!d.employer) d.employer = inferCompany(d, texts[d.id], known());
+  // Not for your own notes: a note that names the offer's company isn't naming your current job.
+  for (const d of docs) if (!d.employer && !d.typed) d.employer = inferCompany(d, texts[d.id], known());
 
   const place = (d: DocRecord, target: Employment) => {
     target.docs.push(d);
@@ -229,11 +232,12 @@ export function assignDocs(
     let target = key ? jobs.find((e) => matchFor(e)(key, jobKeys(e)) && sameStart(e)) : undefined;
     // A close name ("Suzlon Energy Limited" for "Suzlon Global Services Limited"): the same employer
     // after a merger, rename or internal transfer, or a different job? You say.
-    if (!target && key && !d.employerWeak) {
+    // Not for a name you typed (you said which company), nor the very same name (a re-joining letter).
+    if (!target && key && !d.employerWeak && !d.employerTyped && !d.typed) {
       const first = key.split(' ')[0];
-      const near = jobs.find((e) => !isBlank(e) && e.docs.length && [...jobKeys(e)].some((k) => k.split(' ')[0] === first));
+      const near = jobs.find((e) => !isBlank(e) && e.docs.length && !jobKeys(e).has(key) && [...jobKeys(e)].some((k) => k.split(' ')[0] === first));
       if (near && first.length >= 3) {
-        unassigned.push({ ...d, similarTo: near.id });
+        unassigned.push({ ...d, similarTo: near.id, similarKey: key });
         continue;
       }
     }

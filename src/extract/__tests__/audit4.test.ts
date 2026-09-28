@@ -131,3 +131,13 @@ describe('8. comparing a later offer moves an assumed last day', () => {
     expect(s.employers[0].end).toBe('2026-12-31');
   });
 });
+
+describe('"Same employer" is remembered', () => {
+  it('a later file with that name joins the job without asking', () => {
+    const r = assignDocs([blankJob('New job', '2026-04-01')], [letter()], 2026);
+    const withAlias = r.employers.map((e) => ({ ...e, aliases: ['suzlon energy'] }));
+    const t = assignDocs(withAlias, [slip('September')], 2026);
+    expect(t.unassigned).toEqual([]);
+    expect(t.employers[0].docs.length).toBe(2);
+  });
+});

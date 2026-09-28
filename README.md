@@ -22,7 +22,9 @@ that workbook's figures exactly (`src/domain/__tests__/workbook.test.ts`).
      same %, from the effective date. If it's paid later, the difference comes as arrears.
    - **Leaving a job:** last working day and pro-rata salary, leave encashment at basic ÷ 30,
      basic ÷ 26, gross ÷ 30 or your own rate, notice-shortfall recovery on basic or gross, bonus
-     clawback, bond penalty, gratuity, and the month the F&F is paid. Amounts on an F&F slip win.
+     clawback, bond penalty, gratuity (15/26 × last wages × completed years, up to ₹20 lakh; wages
+     as the Labour Codes define them from 21 Nov 2025), and the month the F&F is paid. Amounts on an
+     F&F slip win.
    - **Joining:** joining date, joining bonus and when it's paid, notice buyout on actuals or up
      to a cap, relocation support (reimbursed against bills, tax-free, or a taxable allowance),
      whether employer NPS carries over from your last job, and whether Form 12B is given.

@@ -112,7 +112,7 @@ function withinLimits(d: DocRecord): DocRecord {
 const DEFAULT_NAME = /^(new job|current job|job \d)$/i;
 
 export const jobKeys = (e: Employment) =>
-  new Set([companyKey(e.name), ...e.docs.map((d) => companyKey(d.employer))].filter(Boolean));
+  new Set([companyKey(e.name), ...e.docs.map((d) => companyKey(d.employer)), ...(e.aliases ?? [])].filter(Boolean));
 
 const compact = (k: string) => k.replace(/\s+/g, '');
 const initials = (k: string) => k.split(' ').map((w) => w[0]).join('');

@@ -21,6 +21,10 @@
     {
       "title": "Professional tax: state Acts on tax on professions, trades, callings and employments (monthly salary slabs; Maharashtra and Karnataka collect ₹300 in February; Tamil Nadu and Kerala collect half-yearly; MP, Jharkhand, Bihar and Odisha by annual salary). Sikkim, Mizoram, Tripura, Meghalaya, Manipur and Puducherry added from their state schedules. To be re-checked by the monthly rules check.",
       "url": "https://www.mahagst.gov.in"
+    },
+    {
+      "title": "Gratuity: 15 days' wages (last drawn basic + DA) per completed year or part over six months, up to ₹20 lakh; under the Labour Codes from 21 Nov 2025, allowances above 50% of total pay are added back to wages (Ministry of Labour and Employment, FAQs on Labour Codes)",
+      "url": "https://www.labour.gov.in/static/uploads/2026/01/de4758d5bfeffc456d7de97a801891b0.pdf"
     }
   ],
   "incomeTax": {
@@ -614,6 +618,16 @@
         ],
         "note": "Collected by the municipality each half-year."
       }
+    }
+  },
+  "gratuity": {
+    "daysPerYear": 15,
+    "monthDays": 26,
+    "maxAmount": 2000000,
+    "minYears": 5,
+    "wagesRule": {
+      "from": "2025-11-21",
+      "allowanceShare": 0.5
     }
   }
 }

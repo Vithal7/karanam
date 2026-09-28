@@ -221,7 +221,9 @@ export function App() {
         employers = [j, ...employers];
         id = j.id;
       }
-      employers = employers.map((e) => (e.id === id ? { ...e, docs: [...e.docs, ...docs] } : e));
+      // "Same employer": remembered, so no later file with this name is asked about.
+      const alias = target !== 'new' && first.similarKey ? [first.similarKey] : [];
+      employers = employers.map((e) => (e.id === id ? { ...e, aliases: [...new Set([...(e.aliases ?? []), ...alias])], docs: [...e.docs, ...docs] } : e));
       return rebuild({ ...x, inbox: x.inbox.filter((d) => !group.includes(d)), scenario: { ...x.scenario, employers } }, [id], rules);
     });
 

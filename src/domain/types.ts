@@ -324,6 +324,11 @@ export interface Employment {
   form12B: Form12B;
   /** You answered the Form 12B question (so it isn't asked again). */
   form12BConfirmed?: boolean;
+  /**
+   * Other company names you said are this employer ("Suzlon Energy" for Suzlon Global Services:
+   * a merger, rename or transfer). Files naming them join this job without asking again.
+   */
+  aliases?: string[];
   /** Made only to hold files (not by you): removed when its files are gone. */
   fromFiles?: boolean;
   /** You confirmed the leave balance at exit (0 days is a real answer then). */

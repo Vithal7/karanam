@@ -42,6 +42,12 @@ export interface Rules {
     /** By state code: how much PT a salary attracts and when it's collected. */
     states?: Record<string, PtRule>;
   };
+  /**
+   * Payment of gratuity: `daysPerYear` days' wages (monthly wages ÷ `monthDays`) per completed year
+   * of service, a part year over six months counting as a year, up to `maxAmount`. From
+   * `wagesRule.from` (the Labour Codes), allowances above `allowanceShare` of total pay count as wages.
+   */
+  gratuity?: { daysPerYear: number; monthDays: number; maxAmount: number; minYears: number; wagesRule?: { from: string; allowanceShare: number } };
 }
 
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);

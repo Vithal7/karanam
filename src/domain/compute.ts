@@ -143,7 +143,7 @@ export function fnfItems(emp: Employment, fy: number, thirty = false): FnFItems 
           : `basic ${inr(st.basic)} ÷ 30`;
   const noticePerDay = (f.noticeBasis === 'gross' ? gross : st.basic) / 30;
   const w = window(emp, fy);
-  const g = gratuityFor(emp, st.basic, f);
+  const g = gratuityFor(emp, st, f);
   // An amount from the F&F slip or one you typed wins; otherwise the letter's terms decide.
   const claw = clawbackFor(emp);
   const manualClaw = !!f.clawbackManual || !!f.clawback;
@@ -176,26 +176,57 @@ const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 /** 4 years and 240 days counts as 5 years for gratuity. */
 const GRATUITY_MIN_YEARS = 4 + 240 / 365;
 
+const GRATUITY = { daysPerYear: 15, monthDays: 26, maxAmount: 2_000_000, minYears: 5, ...bundledRules.gratuity };
+
 /**
- * Gratuity at exit. 5+ years: 15/26 × last basic × completed years (6+ months round up), exempt up
- * to ₹20 lakh under s.10(10). Under 5 years many employers pay ex gratia instead, at the yearly
- * gratuity rate in the CTC, prorated for service; ex gratia is taxable salary.
+ * Wages for gratuity, at the rate last drawn: basic + DA. Under the Labour Codes (from 21 Nov
+ * 2025), when allowances are more than half of your total pay, the excess counts as wages too.
+ * Variable pay, incentives and reimbursements aren't part of it.
  */
-export function gratuityFor(emp: Employment, basic: number, f: NonNullable<Employment['fnf']>) {
+export function gratuityWages(st: Structure, exit: string, gratuityMonthly = 0): { wages: number; label: string } {
+  const da = st.others.filter((o) => /dearness|d\.?a\.?/i.test(o.name)).reduce((a, o) => a + (o.amount || 0), 0);
+  const base = st.basic + da;
+  const baseLabel = da ? `basic + DA ${inr(base)}` : `basic ${inr(base)}`;
+  const rule = GRATUITY.wagesRule;
+  if (!rule || exit < rule.from) return { wages: base, label: baseLabel };
+  // All remuneration includes the gratuity part of your CTC; the allowances compared don't (FAQ 7).
+  const total = fixedMonthly(st) + gratuityMonthly;
+  const allowances = fixedMonthly(st) - base;
+  const excess = Math.max(0, allowances - rule.allowanceShare * total);
+  return excess > 0 ? { wages: base + excess, label: `wages ${inr(base + excess)} (${baseLabel} + ${inr(excess)} of allowances above half your pay)` } : { wages: base, label: baseLabel };
+}
+
+/** Completed years of service, a part year over six months counting as a year. */
+const gratuityYears = (years: number) => Math.floor(years) + (years % 1 > 0.5 ? 1 : 0);
+
+/**
+ * Gratuity at exit. 5+ years: 15 days' wages per completed year, 15/26 × wages × years, up to the
+ * ₹20 lakh ceiling; tax-free up to ₹20 lakh under s.10(10). Under 5 years many employers pay ex
+ * gratia instead, at the yearly gratuity rate in the CTC, prorated for service; ex gratia is taxable.
+ */
+export function gratuityFor(emp: Employment, st: Structure, f: NonNullable<Employment['fnf']>) {
   const years = emp.start && emp.end ? Math.max(0, (Date.parse(emp.end) - Date.parse(emp.start)) / 86_400_000 + 1) / 365.25 : 0;
   const qualifies = years >= GRATUITY_MIN_YEARS;
+  const { wages, label: wagesLabel } = gratuityWages(st, emp.end, emp.ctcParts?.gratuity ?? 0);
+  const formula = (n: number) => Math.min(Math.round((GRATUITY.daysPerYear / GRATUITY.monthDays) * wages * n), GRATUITY.maxAmount);
   const none = { gratuity: 0, gratuityKind: 'none' as const, gratuityExempt: 0, gratuityLabel: '', serviceYears: years, gratuityPeriods: [] as GratuityPeriod[] };
   if (f.gratuityMode === 'none') return none;
   if (f.gratuity !== undefined) {
     // Tax-free: the least of what's paid, the 15/26 formula and ₹20 lakh; the rest is taxed.
-    const whole = Math.floor(years) + (years % 1 >= 0.5 ? 1 : 0);
-    const exempt = qualifies ? Math.min(f.gratuity, Math.round((15 / 26) * basic * whole), GRATUITY_EXEMPT_CAP) : 0;
+    const exempt = qualifies ? Math.min(f.gratuity, formula(gratuityYears(years)), GRATUITY_EXEMPT_CAP) : 0;
     return { ...none, gratuity: f.gratuity, gratuityKind: qualifies ? ('gratuity' as const) : ('exgratia' as const), gratuityExempt: exempt, gratuityLabel: 'as per your F&F slip' };
   }
   if (qualifies) {
-    const whole = Math.floor(years) + (years % 1 >= 0.5 ? 1 : 0);
-    const amount = Math.round((15 / 26) * basic * whole);
-    return { ...none, gratuity: amount, gratuityKind: 'gratuity' as const, gratuityExempt: Math.min(amount, GRATUITY_EXEMPT_CAP), gratuityLabel: `15/26 × basic ${inr(basic)} × ${whole} years` };
+    const n = gratuityYears(years);
+    const amount = formula(n);
+    const capped = amount === GRATUITY.maxAmount ? `, capped at the ${inr(GRATUITY.maxAmount)} ceiling (anything more your employer pays is ex gratia, taxed as salary)` : '';
+    return {
+      ...none,
+      gratuity: amount,
+      gratuityKind: 'gratuity' as const,
+      gratuityExempt: Math.min(amount, GRATUITY_EXEMPT_CAP),
+      gratuityLabel: `${GRATUITY.daysPerYear}/${GRATUITY.monthDays} × ${wagesLabel} × ${n} years${capped}`,
+    };
   }
   if (!f.exGratia) return { ...none, gratuityLabel: 'under 5 years of service, so no gratuity; ex gratia is counted only if your employer pays it' };
   const periods = exGratiaPeriods(emp);

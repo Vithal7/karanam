@@ -1,4 +1,5 @@
-import { parseEml } from './eml';
+import { parseEml, type Eml } from './eml';
+import { isCompoundFile, parseMsg } from './msg';
 import { ocrImage, type Progress } from './ocr';
 
 /** Rebuilds visual lines from pdf.js text items so table rows stay on one line. */
@@ -68,8 +69,9 @@ async function docxText(file: Blob): Promise<string> {
 const IMAGE = /\.(jpe?g|png|heic|heif|webp|gif|bmp|tiff?)$/;
 
 /** What a file is from its first bytes, for files picked without a telling name or type. */
-export function sniff(head: Uint8Array, start: string): 'pdf' | 'docx' | 'image' | 'eml' | 'text' | undefined {
+export function sniff(head: Uint8Array, start: string): 'pdf' | 'docx' | 'image' | 'eml' | 'msg' | 'text' | undefined {
   const b = (i: number) => head[i];
+  if (isCompoundFile(head)) return 'msg';
   if (b(0) === 0x25 && b(1) === 0x50 && b(2) === 0x44 && b(3) === 0x46) return 'pdf'; // %PDF
   if (b(0) === 0x50 && b(1) === 0x4b) return 'docx'; // PK (zip)
   if ((b(0) === 0xff && b(1) === 0xd8) || (b(0) === 0x89 && b(1) === 0x50) || (b(0) === 0x47 && b(1) === 0x49) || (b(0) === 0x52 && b(1) === 0x49)) return 'image';
@@ -82,7 +84,7 @@ export function sniff(head: Uint8Array, start: string): 'pdf' | 'docx' | 'image'
 
 export async function fileToText(file: File, onProgress?: Progress): Promise<{ text: string; ocr: boolean }> {
   const name = file.name.toLowerCase();
-  const known = /\.(pdf|docx|eml|txt)$/.test(name) || IMAGE.test(name) || /^(application\/pdf|image\/|message\/rfc822)/.test(file.type);
+  const known = /\.(pdf|docx|eml|msg|txt)$/.test(name) || IMAGE.test(name) || /^(application\/pdf|image\/|message\/rfc822|application\/vnd\.ms-outlook)/.test(file.type);
   if (!known) {
     const head = new Uint8Array(await file.slice(0, 2048).arrayBuffer());
     const kind = sniff(head, new TextDecoder().decode(head));
@@ -91,6 +93,7 @@ export async function fileToText(file: File, onProgress?: Progress): Promise<{ t
     if (kind === 'docx') return as('docx', '');
     if (kind === 'image') return as('jpg', 'image/jpeg');
     if (kind === 'eml') return as('eml', 'message/rfc822');
+    if (kind === 'msg') return as('msg', 'application/vnd.ms-outlook');
     if (kind === 'text') return { text: await file.text(), ocr: false };
   }
   if (file.type === 'application/pdf' || name.endsWith('.pdf')) {
@@ -101,21 +104,20 @@ export async function fileToText(file: File, onProgress?: Progress): Promise<{ t
     return { text: await ocrPdf(file, onProgress), ocr: true };
   }
   if (name.endsWith('.docx')) return { text: await docxText(file), ocr: false };
-  if (name.endsWith('.eml') || file.type === 'message/rfc822') return emlToText(file, onProgress);
+  if (name.endsWith('.eml') || file.type === 'message/rfc822') return mailToText(parseEml(await file.text()), onProgress);
+  if (name.endsWith('.msg') || file.type === 'application/vnd.ms-outlook') return mailToText(parseMsg(new Uint8Array(await file.arrayBuffer())), onProgress);
   if (file.type.startsWith('text/') || name.endsWith('.txt')) return { text: await file.text(), ocr: false };
   if (file.type.startsWith('image/') || IMAGE.test(name)) return { text: await ocrImage(file, onProgress), ocr: true };
-  if (name.endsWith('.msg')) throw new Error("Outlook .msg files can't be read. Save the email as .eml or PDF (or forward it to yourself and save it), then add it.");
-  throw new Error('Unsupported file. Please upload a PDF, Word file, email (.eml) or a photo (JPG, PNG).');
+  throw new Error('Unsupported file. Please upload a PDF, Word file, email (.eml or Outlook .msg) or a photo (JPG, PNG).');
 }
 
-/** An email: its headers and body, then the text of any attached letter (PDF, Word, photo). */
-async function emlToText(file: File, onProgress?: Progress): Promise<{ text: string; ocr: boolean }> {
-  const { text, attachments } = parseEml(await file.text());
+/** An email (.eml or .msg): its headers and body, then the text of any attached letter (PDF, Word, photo). */
+async function mailToText({ text, attachments }: Eml, onProgress?: Progress): Promise<{ text: string; ocr: boolean }> {
   const parts = [text];
   let ocr = false;
   for (const a of attachments.slice(0, 4)) {
     const n = a.name.toLowerCase();
-    if (!/\.(pdf|docx|txt)$/.test(n) && !IMAGE.test(n) && !/^(application\/pdf|image\/)/.test(a.type)) continue;
+    if (!/\.(pdf|docx|txt|eml|msg)$/.test(n) && !IMAGE.test(n) && !/^(application\/pdf|image\/)/.test(a.type)) continue;
     if (/^image\//.test(a.type) && a.bytes.length < 20_000) continue; // signature logos
     try {
       onProgress?.(`Reading attachment ${a.name}`, 0);

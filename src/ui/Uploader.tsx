@@ -99,8 +99,8 @@ export function Uploader(props: {
               </svg>
             )}
             {/* A real label around the input: phones and in-app browsers often ignore input.click(). */}
-            {/* No accept filter: phone pickers grey out types they don't recognise (.eml on iOS and
-                Android), so any file can be picked and its type is worked out after. */}
+            {/* No accept filter: phone pickers grey out types they don't recognise (.eml and .msg on
+                iOS and Android), so any file can be picked and its type is worked out after. */}
             <div class="file-btns">
               <label class={`btn file-btn ${props.compact ? '' : 'primary'}`}>
                 {props.buttonLabel ?? 'Choose files'}
@@ -113,7 +113,7 @@ export function Uploader(props: {
             </div>
             {!props.compact && (
               <p class="muted small">
-                Select several at once: offer letters (old and new), appraisal letters, payslips, your resignation email, the F&F slip. PDF, Word, emails (.eml) or photos (JPG, PNG). They're read on this device and never uploaded.
+                Select several at once: offer letters (old and new), appraisal letters, payslips, your resignation email, the F&F slip. PDF, Word, emails (.eml or Outlook .msg) or photos (JPG, PNG). They're read on this device and never uploaded.
               </p>
             )}
           </>

@@ -65,7 +65,7 @@ const param = (h: string | undefined, key: string) => {
   return m ? decodeWords(m[1] ?? m[2]).replace(/^utf-8''/i, '') : undefined;
 };
 
-const htmlToText = (html: string) =>
+export const htmlToText = (html: string) =>
   html
     .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, '')
     .replace(/<\/(td|th)>/gi, '  ')

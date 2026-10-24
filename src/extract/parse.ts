@@ -218,6 +218,26 @@ function detectColumns(lines: string[]): Columns | undefined {
   return undefined;
 }
 
+/**
+ * A hike letter's table often shows the old pay beside the new ("Component | Current | Revised",
+ * maybe with an "Increase" column). Returns which group of figures on each row is the new pay.
+ */
+function revisionColumns(lines: string[]): { groups: number; pick: number } | undefined {
+  const kinds: [string, RegExp][] = [
+    ['old', /\b(current|existing|present|old|previous|pre[\s-]?revision|before)\b/i],
+    ['new', /\b(revised|new|proposed|post[\s-]?revision|after)\b/i],
+    ['diff', /\b(increase|increment|difference|change|hike)\b/i],
+  ];
+  for (const l of lines) {
+    if (l.length > 120 || /[.!?]$/.test(l) || numbersIn(l).some((n) => !n.pct && n.value >= 100)) continue;
+    const at = kinds.map(([k, re]) => ({ k, i: l.search(re) })).filter((x) => x.i >= 0);
+    if (!at.some((x) => x.k === 'old') || !at.some((x) => x.k === 'new')) continue;
+    at.sort((a, b) => a.i - b.i);
+    return { groups: at.length, pick: at.findIndex((x) => x.k === 'new') };
+  }
+  return undefined;
+}
+
 /** Figures that are always small each month: a larger one is the year's total. */
 const MONTHLY_CAP: Partial<Record<ComponentKey, number>> = { pt: 2_500, employerPf: 30_000, employeePf: 30_000, vpf: 200_000 };
 
@@ -286,6 +306,7 @@ export function parseText(text: string): Extracted {
     ? 'payslip'
     : 'offer';
   const cols = detectColumns(lines);
+  const revision = kind === 'payslip' ? undefined : revisionColumns(lines);
   const components: Extracted['components'] = {};
 
   // Pass 1: CTC, so single-number rows can be sized against it.
@@ -326,7 +347,12 @@ export function parseText(text: string): Extracted {
     if (!nums.length && lines[i + 1] && !segments(lines[i + 1]).length) nums = numbersIn(lines[i + 1]);
     if (!nums.length) continue;
     const pct = nums.find((n) => n.pct)?.value;
-    const money = nums.filter((n) => !n.pct).map((n) => n.value);
+    let money = nums.filter((n) => !n.pct).map((n) => n.value);
+    // Old and new pay side by side: keep the new pay's figures.
+    if (revision && money.length >= revision.groups && money.length % revision.groups === 0) {
+      const g = money.length / revision.groups;
+      money = money.slice(revision.pick * g, (revision.pick + 1) * g);
+    }
     let monthly: number | undefined;
     let annual: number | undefined;
     let confidence: Confidence = 'guessed';

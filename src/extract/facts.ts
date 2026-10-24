@@ -27,13 +27,21 @@ export function classifyDoc(text: string): DocKind {
     fnf: 3 * has(/full\s*(and|&)\s*final|\bf\s*&\s*f\b|\bfnf\b|final\s+settlement|settlement\s+(statement|slip)/, text),
     payslip: 3 * has(/pay\s*slip|salary\s+slip|payslip|pay\s+period|net\s+pay\b/, text),
     appraisal:
-      2 * has(/appraisal|increment|salary\s+revision|revised\s+(annual\s+)?(ctc|compensation|salary|pay|package)|compensation\s+revision|merit\s+increase|annual\s+review|performance\s+review|promot(ed|ion)/, text) +
+      2 *
+        has(
+          /appraisal|increment|salary\s+revision|revised\s+(annual\s+)?(ctc|compensation|salary|pay|package)|compensation\s+revision|merit\s+increase|annual\s+review|performance\s+review|promot(ed|ion)|(salary|compensation|ctc|pay|package|remuneration)\s+(has|have)\s+been\s+(revised|increased|enhanced|raised|re-?fixed)|revision\s+(of|in)\s+(your\s+)?(salary|compensation|ctc|pay|remuneration)|(salary|compensation|pay)\s+review/,
+          text,
+        ) +
       has(/\bhike\b|with\s+effect\s+from|w\.?e\.?f/, text),
     resignation:
       3 * has(/accept(ed|ance of)?\s+(of\s+)?your\s+resignation|resignation\s+(letter|email|dated|has\s+been)|i\s+(hereby\s+)?resign|tender(ing)?\s+my\s+resignation|relieving\s+letter|relieved\s+from/, text) +
       2 * has(/last\s+working\s+day|date\s+of\s+relieving|relieving\s+date|\blwd\b|separation/, text),
-    offer: 2 * has(/offer\s+(letter|of\s+employment)|pleased\s+to\s+offer|letter\s+of\s+appointment|appointment\s+letter|date\s+of\s+joining|joining\s+date/, text) + has(/welcome|annexure/, text),
+    offer: 2 * has(/offer\s+(letter|of\s+employment)|pleased\s+to\s+offer|letter\s+of\s+appointment|appointment\s+letter/, text) + has(/welcome|annexure/, text),
   };
+  // "Date of joining" starts an offer, unless it's a field in a hike letter's employee details.
+  const joining = has(/date\s+of\s+joining|joining\s+date/, text);
+  const joiningField = has(/(date\s+of\s+joining|joining\s+date)\s*[:\-]\s*\d/, text);
+  if (score.offer >= 2 || !score.appraisal || joining > joiningField) score.offer += 2 * joining;
   // A new offer usually mentions "relieving letter" only as a joining requirement.
   if (score.offer >= 4) score.resignation = Math.max(0, score.resignation - 3);
   const order: DocKind[] = ['other', 'taxsheet', 'fnf', 'payslip', 'resignation', 'appraisal', 'offer'];

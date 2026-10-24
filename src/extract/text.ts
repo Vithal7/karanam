@@ -13,12 +13,12 @@ async function pdfText(file: Blob, onProgress?: Progress): Promise<string> {
     onProgress?.(`Reading page ${p} of ${doc.numPages}`, p / doc.numPages);
     const page = await doc.getPage(p);
     const content = await page.getTextContent();
-    const rows: { y: number; items: { x: number; s: string }[] }[] = [];
+    const rows: { y: number; items: { x: number; s: string; w: number }[] }[] = [];
     const widths: number[] = [];
     for (const it of content.items as { str: string; transform: number[]; height?: number; width?: number }[]) {
       if ('str' in it && it.str.trim() && it.width) widths.push(it.width / it.str.length);
     }
-    for (const it of content.items as { str: string; transform: number[]; height?: number }[]) {
+    for (const it of content.items as { str: string; transform: number[]; height?: number; width?: number }[]) {
       if (!('str' in it) || !it.str.trim()) continue;
       const x = it.transform[4];
       const y = it.transform[5];
@@ -27,7 +27,7 @@ async function pdfText(file: Blob, onProgress?: Progress): Promise<string> {
       const tol = Math.max(3, 0.6 * (it.height || Math.abs(it.transform[3]) || 10));
       let row = rows.find((r) => Math.abs(r.y - y) < tol);
       if (!row) rows.push((row = { y, items: [] }));
-      row.items.push({ x, s: it.str });
+      row.items.push({ x, s: it.str, w: it.width ?? 0 });
     }
     rows.sort((a, b) => b.y - a.y);
     // Lay text out by x position (like pdftotext -layout), so table columns line up across rows:
@@ -38,10 +38,16 @@ async function pdfText(file: Blob, onProgress?: Progress): Promise<string> {
       rows
         .map((r) => {
           let line = '';
+          let end = -Infinity;
           for (const i of r.items.sort((a, b) => a.x - b.x)) {
-            const col = Math.round(i.x / charW);
-            line += line ? ' '.repeat(Math.max(2, col - line.length)) : ' '.repeat(Math.max(0, col));
-            line += i.s;
+            // Pieces of one word ("o" + "ff" + "er" around a ligature) touch: join them as written.
+            if (line && i.x - end < 0.3 * charW && i.x - end > -charW) line += i.s;
+            else {
+              const col = Math.round(i.x / charW);
+              line += line ? ' '.repeat(Math.max(2, col - line.length)) : ' '.repeat(Math.max(0, col));
+              line += i.s;
+            }
+            end = i.x + i.w;
           }
           return line.replace(/\s+$/, '');
         })

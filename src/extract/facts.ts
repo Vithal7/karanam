@@ -197,6 +197,7 @@ export function extractFacts(text: string, kind: DocKind): Facts {
         const n = WORDS[m[4].toLowerCase()] ?? parseInt(m[4], 10);
         f.joiningClawbackMonths = /year/i.test(m[5]) ? n * 12 : n;
       }
+      if (/(upon|on|after)\s+(the\s+)?(successful\s+)?(completion|confirmation)\s+of\s+(the\s+|your\s+)?probation/i.test(around.replace(/\s+/g, ' '))) f.joiningAfterProbation = true;
     }
   }
   if (kind === 'offer' || kind === 'appraisal') {
@@ -208,6 +209,9 @@ export function extractFacts(text: string, kind: DocKind): Facts {
     if (j || r) f.clawbackTerms = terms;
     if (j && !f.joiningClawbackMonths && kind === 'offer') f.joiningClawbackMonths = j.months;
   }
+  // Your employment details, as payroll and HR papers list them: the same person at the same employer.
+  if (kind !== 'offer' && kind !== 'other') f.joinedOn = dateAfter(flat, /date\s+of\s+joining|joining\s+date|\bdoj\b/, 40);
+  f.employeeCode = /\b(?:emp(?:loyee)?\.?\s*(?:code|id|no\.?|number)|staff\s+(?:id|no\.?))\s*[:\-#.]?\s*([A-Z]{0,4}\d{3,10})\b/i.exec(flat)?.[1]?.toUpperCase();
   // TAN: four letters, five digits, a letter (a PAN has five letters first).
   f.tan = /\bTAN\b(?:\s*(?:of\s+(?:the\s+)?(?:employer|deductor)|no\.?|number|#))?\s*[:\-]?\s*([A-Z]{4}\d{5}[A-Z])\b/i.exec(t)?.[1]?.toUpperCase();
   if (kind === 'offer' || kind === 'payslip' || kind === 'appraisal' || kind === 'taxsheet') f.location = findLocation(t);
@@ -337,7 +341,7 @@ export function findClawbackTerms(flat: string, which: 'joining' | 'retention'):
       const between = new RegExp(`between\\s+${NUM}\\s*(?:months?|years?)?\\s*(?:and|to|-)\\s*${NUM}\\s*(months?|years?)`, 'i').exec(c);
       const ordinal = /(first|second|third)\s+year/i.exec(c);
       const within = new RegExp(
-        `(?:within|before\\s+(?:completing|completion\\s+of)|less\\s+than|prior\\s+to\\s+(?:completing|completion\\s+of)|up\\s*to|in\\s+the\\s+first|minimum\\s+(?:period\\s+)?of|at\\s+least)\\s+(?:a\\s+(?:period|service)\\s+of\\s+)?${NUM}\\s*(?:\\(\\w+\\)\\s*)?(months?|years?)`,
+        `(?:within|before\\s+(?:completing|completion\\s+of)|less\\s+than|prior\\s+to\\s+(?:completing|completion\\s+of)|up\\s*to|in\\s+the\\s+first|minimum\\s+(?:period\\s+)?of|at\\s+least|(?:claw\\s*-?\\s*back|lock[\\s-]*in|recovery)\\s+period\\s+of)\\s+(?:a\\s+(?:period|service)\\s+of\\s+)?${NUM}\\s*(?:\\(\\w+\\)\\s*)?(months?|years?)`,
         'i',
       ).exec(c);
       let months: number | undefined;

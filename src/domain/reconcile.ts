@@ -41,6 +41,9 @@ export function reconcile(e: Employment, st: Structure, month: string, rules: Ru
   if (!gratuityFromLetter) {
     const withG = base - 0.0481 * st.basic;
     if (Math.abs(withG - fixed) < Math.abs(base - fixed)) gratuity = 0.0481 * st.basic;
+  } else if (Math.abs(base - fixed) < Math.abs(base - gratuity - fixed)) {
+    // The letter lists gratuity below its total (a "Total Cash Component"): outside the CTC.
+    gratuity = 0;
   }
   const implied = base - gratuity;
   const gap = implied - fixed;

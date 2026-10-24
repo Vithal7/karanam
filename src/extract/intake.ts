@@ -7,7 +7,7 @@ import { fyStart } from '../domain/fy';
 import type { DocRecord, Employment } from '../domain/types';
 import { uid } from '../format';
 import { classifyDoc, companyFromEmail, companyKey, extractFacts } from './facts';
-import { docFromExtract } from './merge';
+import { docFromExtract, joinedOn } from './merge';
 import { parseText } from './parse';
 import { isNote, looksLikeDocument, parseNote } from './note';
 import { parseMonthTable, sheetFy } from './months';
@@ -246,7 +246,11 @@ export function assignDocs(
     if (!target && key && !d.employerWeak && !d.employerTyped && !d.typed) {
       const first = key.split(' ')[0];
       const near = jobs.find((e) => !isBlank(e) && e.docs.length && !jobKeys(e).has(key) && [...jobKeys(e)].some((k) => k.split(' ')[0] === first));
-      if (near && first.length >= 3) {
+      if (near && first.length >= 3 && sameEmployee(d, near)) {
+        // Your employee code or joining date says it's the same job: the group company's other name.
+        near.aliases = [...new Set([...(near.aliases ?? []), key])];
+        target = near;
+      } else if (near && first.length >= 3) {
         unassigned.push({ ...d, similarTo: near.id, similarKey: key });
         continue;
       }
@@ -374,6 +378,22 @@ export function checkTimeline(jobs: Employment[], fy: number): { employers: Empl
   return { employers: out, aside };
 }
 
+/**
+ * Your own details on the paper match the job: the same employee code as one of its files, or the
+ * joining date its offer planned (a letter is dated a few weeks or months before you join).
+ */
+function sameEmployee(d: DocRecord, e: Employment): boolean {
+  const code = d.facts?.employeeCode;
+  if (code && e.docs.some((x) => x.facts?.employeeCode === code)) return true;
+  const joined = d.facts?.joinedOn;
+  if (!joined) return false;
+  return e.docs.some(
+    (x) =>
+      (x.facts?.joinedOn && Math.abs(daysApart(x.facts.joinedOn, joined)) <= 45) ||
+      (x.kind === 'offer' && (x.doj ? Math.abs(daysApart(x.doj, joined)) <= 45 : !!x.docDate && daysApart(joined, x.docDate) >= 0 && daysApart(joined, x.docDate) <= 120)),
+  );
+}
+
 const daysApart = (a: string, b: string) => (a && b ? (Date.parse(a) - Date.parse(b)) / 86_400_000 : Infinity);
 
 /** The job you were in on the document's date. Nothing can belong to a job before it started. */
@@ -421,7 +441,7 @@ function siblingName(d: DocRecord, all: DocRecord[]): string | undefined {
 
 /** Earliest known date for a job: its joining date, else its oldest file. */
 export function jobStart(e: Employment): string {
-  const doj = e.docs.filter((d) => d.kind === 'offer' && d.doj).map((d) => d.doj!).sort()[0];
+  const doj = joinedOn(e.docs) ?? e.docs.filter((d) => d.kind === 'offer' && d.doj).map((d) => d.doj!).sort()[0];
   if (doj) return doj;
   if (e.startSource === 'user') return e.start;
   if (e.start && !isBlank(e)) return e.start;

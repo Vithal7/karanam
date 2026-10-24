@@ -62,7 +62,7 @@ const ONE_OFF: ComponentKey[] = ['joining', 'retention', 'variable', 'arrears', 
 
 // Order matters: the first match wins, so more specific patterns come first.
 const LABELS: [ComponentKey, RegExp][] = [
-  ['ctc', /\bt?ctc\b|cost\s+to\s+(the\s+)?company|total\s+(annual\s+|target\s+|fixed\s+and\s+variable\s+)?(compensation|remuneration|package|rewards?|emoluments)|annual\s+(compensation|package|remuneration|emoluments)|gross\s+annual\s+compensation|target\s+compensation|annual\s+salary\s+package|\b(compensation|package)\s*[:\-](?=\s*(?:₹|rs\.?|inr)?\s*\d)/i],
+  ['ctc', /\bt?ctc\b|cost\s+to\s+(the\s+)?company|total\s+cash\s+(component|compensation)|\btcc\b|total\s+(annual\s+|target\s+|fixed\s+and\s+variable\s+)?(compensation|remuneration|package|rewards?|emoluments)|annual\s+(compensation|package|remuneration|emoluments)|gross\s+annual\s+compensation|target\s+compensation|annual\s+salary\s+package|\b(compensation|package)\s*[:\-](?=\s*(?:₹|rs\.?|inr)?\s*\d)/i],
   ['arrears', /\barrears?\b/i],
   ['perquisite', /perquisite|\bperqs?\b|\besops?\b|\bespp\b|\brsus?\b|stock\s+(option|award)s?\s+(perq|benefit|income)/i],
   ['vpf', /\bvpf\b|voluntary\s+(provident\s+fund|pf)/i],

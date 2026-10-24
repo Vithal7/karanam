@@ -161,6 +161,8 @@ export interface MonthActual {
   tds?: number;
   gross?: number;
   items?: { label: string; amount: number; kind: 'bonus' | 'arrears' | 'perquisite' }[];
+  /** The month's pay by component, as payslip fields ("basic", "hra", "other:Car Allowance", "epf"). */
+  pay?: Record<string, number>;
 }
 
 /** An employer's Form 16 figures (Part A: TDS; Part B: salary and deductions). */
@@ -214,6 +216,12 @@ export interface Facts {
   penalty?: number;
   buyout?: { mode: 'actuals' | 'cap'; cap?: number; includesClawback?: boolean };
   joiningClawbackMonths?: number;
+  /** Joining date stated in a payroll or HR paper's employee details. */
+  joinedOn?: string;
+  /** Employee code / ID: the same code on two papers is the same job. */
+  employeeCode?: string;
+  /** The letter pays the joining bonus once probation is complete. */
+  joiningAfterProbation?: boolean;
   /** Repayment terms of a joining or retention bonus, as the letter states them. */
   clawbackTerms?: Partial<Record<'joining' | 'retention', ClawbackTerms>>;
   /**

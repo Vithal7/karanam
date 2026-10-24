@@ -80,17 +80,39 @@ export function orderDocs(docs: DocRecord[]) {
 }
 
 /**
+ * A tax sheet's month-by-month pay, read as payslips: one for the last month at each pay level.
+ * A month whose basic matches no month beside it (joining or leaving mid-month) isn't a full month's pay.
+ */
+export function sheetSlips(d: DocRecord): DocRecord[] {
+  const months = Object.entries(d.facts?.monthly ?? {})
+    .filter(([, a]) => a.pay?.basic)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const basic = (i: number) => months[i]?.[1].pay!.basic;
+  const same = (i: number, j: number) => basic(j) !== undefined && Math.abs(basic(i)! - basic(j)!) <= 1;
+  return months
+    .filter((_, i) => (months.length === 1 || same(i, i - 1) || same(i, i + 1)) && !same(i, i + 1))
+    .map(([m, a]) => ({ id: `${d.id}:${m}`, name: d.name, kind: 'payslip' as const, docDate: `${m}-01`, fields: { ...a.pay! }, employer: d.employer }));
+}
+
+/** The files, with each tax sheet's month table also read as payslips. */
+export const withSheetSlips = (docs: DocRecord[]) => [...docs, ...docs.filter((d) => d.kind === 'taxsheet').flatMap(sheetSlips)];
+
+/**
  * Files that describe the starting salary: offer letters, and payslips from before the first
  * appraisal. Later payslips and appraisal letters become dated hikes instead (see events.ts).
  */
 /** Fields that describe CTC, not pay: read for the reconciliation, never merged as salary. */
 const CTC_ONLY = new Set(['employerPf', 'gratuity', 'insurance']);
 
-export function baseDocs(docs: DocRecord[]): DocRecord[] {
+export function baseDocs(docs0: DocRecord[]): DocRecord[] {
+  const docs = withSheetSlips(docs0);
   const hikes = docs.filter((d) => d.kind === 'appraisal').map((d) => (d.facts?.effectiveFrom ?? d.docDate ?? '').slice(0, 7)).filter(Boolean).sort();
   const first = hikes[0];
   return docs.filter((d) => d.kind === 'offer' || (d.kind === 'payslip' && (!first || !d.docDate || d.docDate.slice(0, 7) < first)));
 }
+
+/** The joining date a payroll or HR paper states (tax sheet, payslip, resignation). */
+export const joinedOn = (docs: DocRecord[]) => docs.map((d) => d.facts?.joinedOn).find((x): x is string => !!x);
 
 export function mergeDocs(docs: DocRecord[]) {
   const ordered = orderDocs(docs);
@@ -169,7 +191,8 @@ export function applyDocs(
 
   const ordered = orderDocs(docs);
   const newestDate = [...ordered].reverse().find((d) => d.docDate)?.docDate;
-  const doj = ordered.find((d) => d.kind === 'offer' && d.doj)?.doj;
+  // The joining date HR or payroll recorded beats the one the offer planned.
+  const doj = joinedOn(emp.docs) ?? ordered.find((d) => d.kind === 'offer' && d.doj)?.doj;
   const name = ordered.find((d) => d.employer)?.employer;
   const marks: Record<string, Mark> = {};
 
@@ -267,7 +290,10 @@ export function applyDocs(
   marks.start = doj ? 'found' : 'missing';
   for (const c of conflicts) if (!choices[c.field]) marks[c.field] = 'guessed';
 
-  return { emp: out, marks, sources, ytdTds: ytd?.ytdTds !== undefined ? { amount: ytd.ytdTds, asOf: ytd.docDate ?? newestDate } : undefined };
+  // An undated tax sheet is as of the last month its table records.
+  const sheetMonth = Object.keys(ytd?.facts?.monthly ?? {}).sort().pop();
+  const asOf = ytd?.docDate ?? (sheetMonth ? `${sheetMonth}-28` : newestDate);
+  return { emp: out, marks, sources, ytdTds: ytd?.ytdTds !== undefined ? { amount: ytd.ytdTds, asOf } : undefined };
 }
 
 /** Decide whether a PF figure is the statutory amount, 12% of full basic, or a fixed number. */

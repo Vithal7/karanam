@@ -7,7 +7,7 @@ import { addMonths, monthLong, monthOf } from '../domain/fy';
 import { fixedMonthly, noticeShortfall } from '../domain/schedule';
 import type { Employment, FnF, MonthActual, OneTime, Revision, Structure } from '../domain/types';
 import { epfCeiling, type Rules } from '../rules';
-import { orderDocs } from './merge';
+import { orderDocs, withSheetSlips } from './merge';
 
 const scale = (s: Structure, k: number): Structure => ({
   ...s,
@@ -34,6 +34,25 @@ const withComponents = (prev: Structure, f: Record<string, number>): Structure |
     others: others.length ? others.map((k) => ({ name: k.slice(6), amount: f[k] })) : prev.others,
   };
 };
+
+/**
+ * Your PF went up with no change in basic (the wage ceiling rose). If your pay fell by the same
+ * amount, the employer's extra share came out of your allowance; if it stayed put, they paid it on top.
+ */
+export function pfRiseFromMonths(docs: Employment['docs']): Employment['pfRise'] {
+  const pays = docs.flatMap((d) => Object.entries(d.facts?.monthly ?? {})).filter(([, a]) => a.pay?.basic && a.pay.epf).sort(([a], [b]) => a.localeCompare(b));
+  const earned = (p: Record<string, number>) => Object.entries(p).reduce((t, [k, v]) => (k === 'epf' || k === 'pt' ? t : t + v), 0);
+  for (let i = 1; i < pays.length; i++) {
+    const [a, b] = [pays[i - 1][1].pay!, pays[i][1].pay!];
+    const rise = b.epf - a.epf;
+    if (rise <= 0 || Math.abs(a.basic - b.basic) > 1) continue;
+    const drop = earned(a) - earned(b);
+    const close = (x: number) => Math.abs(x) <= Math.max(50, 0.1 * rise);
+    if (close(drop - rise)) return 'allowance';
+    if (close(drop)) return 'employer';
+  }
+  return undefined;
+}
 
 export interface EventsResult {
   emp: Employment;
@@ -96,7 +115,7 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
   }
 
   // --- Payslips after a hike show the real breakup: pin it on that hike ---
-  for (const d of docs.filter((x) => x.kind === 'payslip' && x.docDate)) {
+  for (const d of orderDocs(withSheetSlips(docs)).filter((x) => x.kind === 'payslip' && x.docDate)) {
     const m = monthOf(d.docDate!);
     const h = [...hikes].reverse().find((x) => (x.payoutMonth ?? x.from) <= m);
     const given = h && withComponents(h.structure, d.fields);
@@ -153,6 +172,9 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
       `${base.name} is from ${monthLong(monthOf(base.docDate))}. It's used as your salary at ${emp.name || 'this job'}; if you've had a hike since, add the appraisal letter or a recent payslip.`,
     );
   }
+
+  // --- PF wage ceiling rise: the month table shows who paid the employer's extra share ---
+  out.pfRise ??= pfRiseFromMonths(docs);
 
   // --- Notice period: appointment letter, or the resignation acceptance ---
   const noticeDoc = [...docs].reverse().find((d) => d.facts?.noticeDays);
@@ -230,7 +252,9 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
   if (probation && !statedMonth && out.start) {
     const month = addMonths(monthOf(out.start), probation);
     out.oneTimes = out.oneTimes.map((o) => (o.kind === 'joining' && o.id === 'joining' ? { ...o, month } : o));
-    if (out.oneTimes.some((o) => o.kind === 'joining'))
+    if (out.oneTimes.some((o) => o.kind === 'joining') && offerFacts.some((f) => f.joiningAfterProbation))
+      notes.push(`Your letter pays the joining bonus once your ${probation} months' probation is over: it's taken as paid with the ${monthLong(month)} salary.`);
+    else if (out.oneTimes.some((o) => o.kind === 'joining'))
       notes.push(`Your letter has ${probation} months' probation and doesn't say when the joining bonus is paid, so it's taken as paid after probation, with the ${monthLong(month)} salary. Change it under "Check the numbers" if your letter says otherwise.`);
   }
   // Bonus repayment terms: the joining bonus's from the offer, a retention bonus's from the

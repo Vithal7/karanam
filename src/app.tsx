@@ -526,7 +526,10 @@ export function App() {
               choices={st.choices[editing.id] ?? {}}
               marks={st.marks[editing.id] ?? {}}
               sources={st.sources[editing.id] ?? {}}
-              warnings={(st.warnings[editing.id] ?? []).filter((w) => editIndex === s.employers.length - 1 || !/date of joining/i.test(w))}
+              // A letter's gap that another file filled (a tax sheet's basic, a resignation's joining date) isn't a gap.
+              warnings={(st.warnings[editing.id] ?? []).filter(
+                (w) => !(/date of joining/i.test(w) && (editIndex < s.employers.length - 1 || st.marks[editing.id]?.start === 'found')) && !(/basic salary/i.test(w) && st.marks[editing.id]?.basic === 'found'),
+              )}
               notes={st.notes[editing.id] ?? []}
               tdsSoFar={st.tdsSoFar[editing.id] ?? null}
               ytdHint={[...editing.docs].reverse().find((d) => d.ytdTds !== undefined)?.ytdTds}

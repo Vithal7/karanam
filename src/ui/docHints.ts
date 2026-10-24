@@ -42,7 +42,8 @@ export function docHints(s: Scenario, k: number): DocHint[] {
     });
   }
   // What was actually paid and deducted this year.
-  const slipThisYear = e.docs.some((d) => (d.kind === 'payslip' || d.kind === 'taxsheet') && dated(d) >= from);
+  // An undated tax sheet counts by the financial year it's for.
+  const slipThisYear = e.docs.some((d) => (d.kind === 'payslip' || d.kind === 'taxsheet') && (dated(d) >= from || (d.kind === 'taxsheet' && d.fy === s.fy)));
   if (workedThisYear && !slipThisYear && s.today > from) {
     out.push({
       kind: 'payslip',

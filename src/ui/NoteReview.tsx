@@ -128,7 +128,7 @@ export function NoteReview(props: { doc: DocRecord; jobName: string; onSave: (pa
                 />
                 {x.buyout?.mode === 'cap' && <Money value={x.buyout.cap ?? 0} onChange={(v) => setX({ buyout: { ...x.buyout!, cap: v } })} ariaLabel="Buyout limit" />}
               </Field>
-              {x.buyout && <Toggle checked={!!x.buyout.includesClawback} onChange={(v) => setX({ buyout: { ...x.buyout!, includesClawback: v } })} label="It also covers the joining bonus you repay" />}
+              {x.buyout && <Toggle checked={!!x.buyout.includesClawback} onChange={(v) => setX({ buyout: { ...x.buyout!, includesClawback: v } })} label="It also covers the bonus you repay" />}
             </>
           )}
         </>

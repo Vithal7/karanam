@@ -165,7 +165,7 @@ export function BuyoutQuestion(props: { s: Scenario; k: number; onChange: (e: Em
           { value: 'cap', label: 'Yes, up to a limit' },
         ]}
       />
-      {mode && mode !== 'none' && <Toggle checked={incl} onChange={setIncl} label={`It also covers the joining bonus you repay${claw ? ` (${rs(claw)})` : ''}`} />}
+      {mode && mode !== 'none' && <Toggle checked={incl} onChange={setIncl} label={`It also covers the bonus you repay${claw ? ` (${rs(claw)})` : ''}`} />}
       {mode === 'actuals' && (
         <button type="button" class="btn small primary" onClick={() => save({ mode: 'actuals', includesClawback: incl })}>
           Use this

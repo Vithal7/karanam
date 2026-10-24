@@ -25,6 +25,23 @@ export function rowKind(label: string): RowKind | undefined {
   return undefined;
 }
 
+/**
+ * A salary component row ("Basic Salary", "HRA", "Car Allowance", "PF"), as the payslip field it
+ * fills. Earnings rows count only above the gross line; below it are deductions and tax workings.
+ */
+export function payField(label: string, earnings: boolean): string | undefined {
+  const l = label.toLowerCase();
+  if (/total|gross|\bnet\b|tds|income|tax\s+deducted|arrear|extra|reimburs|perquisite|off\s*cycle|exempt|deduction|section|taxable|bonus|incentive|variable/.test(l)) return undefined;
+  if (/^(employee'?s?\s+)?(pf|epf|provident\s+fund)\b/.test(l) && !/employer/.test(l)) return 'epf';
+  if (/^(professional|prof\.?)\s+tax|^p\.?\s*tax$|^pt$/.test(l)) return 'pt';
+  if (!earnings) return undefined;
+  if (/^basic/.test(l)) return 'basic';
+  if (/\bhra\b|house\s+rent/.test(l)) return 'hra';
+  if (/special\s+allow/.test(l)) return 'special';
+  if (/allow|conveyance|\blta\b|leave\s+travel|transport|medical|meal|food|attire|uniform|\bcar\b|fuel|telephone|internet|education|flexi|dearness|\bda\b/.test(l)) return `other:${label.trim()}`;
+  return undefined;
+}
+
 /** Financial year the sheet is for ("Financial Year 2026-27", "FY 26-27", "AY 2027-28"). */
 export function sheetFy(text: string): number | undefined {
   const fy = /(?:financial\s+year|f\.?\s?y\.?)\s*[:\-]?\s*(\d{2,4})\s*[-–/]\s*(\d{2,4})/i.exec(text);
@@ -118,11 +135,14 @@ export function parseMonthTable(text: string, fallbackFy: number, cutoff: string
     });
     const cols = months.map((c) => c.at);
     const seen = new Set<string>();
+    let earnings = true;
     for (const line of lines.slice(hi + 1, hi + 60)) {
       if (cells(line, MON_TOKEN).length >= 3) break; // next table
       const label = labelOf(line);
       const kind = rowKind(label);
-      if (!kind) continue;
+      const field = kind ? undefined : payField(label, earnings);
+      if (kind === 'gross' || /^deductions?\b/i.test(label)) earnings = false;
+      if (!kind && !field) continue;
       // A label seen again is the summary below the table ("Total Extra Payments  4,01,523").
       if (seen.has(label.toLowerCase())) continue;
       seen.add(label.toLowerCase());
@@ -133,7 +153,14 @@ export function parseMonthTable(text: string, fallbackFy: number, cutoff: string
       // collide or fall outside every column. A full row of values is then read in order.
       const placed = assigned.filter((v) => v !== undefined).length;
       if (positional && placed < Math.min(values.length, cols.length) && values.length >= cols.length) assigned = inOrder(values, cols.length);
-      assigned.forEach((v, i) => put(keys[i], kind, label, v));
+      if (field) {
+        assigned.forEach((v, i) => {
+          if (v && Number.isFinite(v) && keys[i] < cutoff) {
+            const pay = ((out[keys[i]] ??= {}).pay ??= {});
+            pay[field] = (pay[field] ?? 0) + v;
+          }
+        });
+      } else assigned.forEach((v, i) => put(keys[i], kind!, label, v));
     }
   });
   if (Object.keys(out).length) return out;

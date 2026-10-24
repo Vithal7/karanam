@@ -2,11 +2,41 @@ import { parseEml, type Eml } from './eml';
 import { isCompoundFile, parseMsg } from './msg';
 import { ocrImage, type Progress } from './ocr';
 
+let pdfWorker: Promise<string> | undefined;
+
+/** The PDF worker, fetched once and kept in memory: a site update while the page is open can't take it away. */
+function pdfWorkerSrc(): Promise<string> {
+  return (pdfWorker ??= (async () => {
+    const url = new URL((await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default, document.baseURI).href;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return url;
+      return URL.createObjectURL(new Blob([await r.text()], { type: 'text/javascript' }));
+    } catch {
+      return url;
+    }
+  })());
+}
+
+/**
+ * Loads the file readers in the background once the page is up. Each site update renames them, so
+ * a page opened before an update could otherwise no longer fetch them when you add a file.
+ */
+export function warmReaders() {
+  const quiet = (p: Promise<unknown>) => p.catch(() => undefined);
+  quiet(import('pdfjs-dist'));
+  quiet(pdfWorkerSrc());
+  quiet(import('mammoth/mammoth.browser.js'));
+  quiet(import('tesseract.js'));
+}
+
+/** A reader that can't be fetched because the site was updated after this page opened. */
+export const isStaleBuild = (e: unknown) => e instanceof Error && /dynamically imported module|importing a module script failed|error loading dynamically imported|failed to load module script/i.test(e.message);
+
 /** Rebuilds visual lines from pdf.js text items so table rows stay on one line. */
 async function pdfText(file: Blob, onProgress?: Progress): Promise<string> {
   const pdfjs = await import('pdfjs-dist');
-  const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(workerUrl, document.baseURI).href;
+  pdfjs.GlobalWorkerOptions.workerSrc = await pdfWorkerSrc();
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
   const pages: string[] = [];
   for (let p = 1; p <= doc.numPages; p++) {

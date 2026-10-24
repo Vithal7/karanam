@@ -10,3 +10,7 @@ try {
   /* ignore */
 }
 render(<App />, document.getElementById('app')!);
+// Load the file readers while you look at the page, so a site update can't leave this page without them.
+const warm = () => import('./extract/text').then((m) => m.warmReaders()).catch(() => undefined);
+if ('requestIdleCallback' in window) requestIdleCallback(warm, { timeout: 4000 });
+else setTimeout(warm, 2000);

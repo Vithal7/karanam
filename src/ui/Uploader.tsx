@@ -1,6 +1,6 @@
 import { useRef, useState } from 'preact/hooks';
 import { parseText, type Extracted } from '../extract/parse';
-import { fileToText } from '../extract/text';
+import { fileToText, isStaleBuild } from '../extract/text';
 
 export interface ReadFile {
   name: string;
@@ -45,6 +45,7 @@ export function Uploader(props: {
     setErrors([]);
     const read: ReadFile[] = [];
     const errs: string[] = [];
+    const stale: string[] = [];
     for (const [i, file] of files.entries()) {
       setBusy({ status: 'Opening', p: 0, file: file.name, i: i + 1, n: files.length });
       try {
@@ -52,7 +53,8 @@ export function Uploader(props: {
         read.push({ name: file.name, text, x: parseText(text) });
       } catch (e) {
         console.error(e);
-        errs.push(`${file.name}: ${e instanceof Error ? e.message : 'could not read this file.'}`);
+        if (isStaleBuild(e)) stale.push(file.name);
+        else errs.push(`${file.name}: ${e instanceof Error ? e.message : 'could not read this file.'}`);
       }
     }
     setBusy(null);
@@ -60,6 +62,19 @@ export function Uploader(props: {
     if (input.current) input.current.value = '';
     if (camera.current) camera.current.value = '';
     if (read.length) props.onFiles(read);
+    if (stale.length) {
+      // The site was updated while this page was open: the files read so far are saved; reload
+      // once for the new version and ask for the rest again.
+      let again = false;
+      try {
+        again = !!sessionStorage.getItem('karanam:reloaded');
+        sessionStorage.setItem('karanam:reloaded', '1');
+      } catch {
+        /* private mode */
+      }
+      setErrors([...errs, `The site was updated while this page was open, so ${stale.join(', ')} couldn't be read. ${again ? 'Reload the page' : 'Reloading now'}, then add ${stale.length === 1 ? 'it' : 'them'} again.`]);
+      if (!again) setTimeout(() => location.reload(), 2500);
+    }
   }
 
   return (

@@ -4,7 +4,7 @@
  */
 import { MAX_EMPLOYERS } from '../domain/compute';
 import { fyStart } from '../domain/fy';
-import type { DocRecord, Employment } from '../domain/types';
+import type { DocRecord, Employment, Facts } from '../domain/types';
 import { uid } from '../format';
 import { classifyDoc, companyFromEmail, companyKey, extractFacts } from './facts';
 import { docFromExtract, joinedOn } from './merge';
@@ -67,6 +67,30 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
   if (k !== 'offer') delete d.doj;
   if (k === 'other') d.fields = {};
   return d;
+}
+
+/** Bump when reading changes: files you added earlier are read again with the new reader. */
+export const READER_VERSION = 2;
+
+/**
+ * A file read again from its saved text, keeping what you decided about it: its type if you chose
+ * it, the hike details you answered, and that you kept it. Your own notes stay as you confirmed them.
+ */
+export function rereadDoc(d: DocRecord): DocRecord {
+  if (!d.text || d.typed || d.noteRole) return d;
+  const fresh = docFromText(d.text, d.name, d.id, d.kindByUser ? d.kind : undefined);
+  const answered: Partial<Facts> = {};
+  if (d.kind === 'appraisal' && fresh.kind === 'appraisal')
+    for (const k of ['effectiveFrom', 'incrementPct', 'revisedCtc', 'incrementAmount'] as const) if (d.facts?.[k] !== undefined) Object.assign(answered, { [k]: d.facts[k] });
+  return {
+    ...fresh,
+    facts: { ...answered, ...fresh.facts },
+    employer: fresh.employer ?? d.employer,
+    ...(d.keep ? { keep: true } : {}),
+    ...(d.confirmed ? { confirmed: true } : {}),
+    ...(d.kindByUser ? { kindByUser: true } : {}),
+    ...(d.similarTo ? { similarTo: d.similarTo, similarKey: d.similarKey } : {}),
+  };
 }
 
 /**

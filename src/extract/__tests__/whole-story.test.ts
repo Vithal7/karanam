@@ -8,7 +8,8 @@ import { reconcile } from '../../domain/reconcile';
 import { bundledRules } from '../../rules';
 import { applyEvents, pfRiseFromMonths } from '../events';
 import { findClawbackTerms } from '../facts';
-import { assignDocs, blankJob, docFromText } from '../intake';
+import { assignDocs, blankJob, docFromText, rereadDoc } from '../intake';
+import { staleSalary } from '../../ui/Questions';
 import { applyDocs, sheetSlips } from '../merge';
 
 const OFFER = `Northwind Global Services Limited
@@ -128,5 +129,22 @@ describe('papers that add up together', () => {
 
   it('"a claw back period of 12 months" is the repayment window', () => {
     expect(findClawbackTerms('Joining Bonus of INR 50,000. It is subject to a claw back period of 12 months; it will be recovered if you resign.', 'joining')?.months).toBe(12);
+  });
+
+  it('without the hike letter, the tax sheet\'s pay change is a dated hike, and nothing asks whether pay changed', () => {
+    const docs = [docFromText(OFFER, 'offer.pdf'), docFromText(TAX, 'tax.pdf'), docFromText(RESIGN, 'resignation.eml')];
+    const job = assignDocs([blankJob('New job', '2026-04-01')], docs, 2026).employers.find((e) => /northwind/i.test(e.name))!;
+    const ev = applyEvents(applyDocs(job, {}, bundledRules).emp, bundledRules, '2026-04');
+    expect(ev.emp.structure.basic).toBe(60000);
+    expect(ev.emp.revisions.map((r) => [r.from, r.structure.basic])).toEqual([['2026-07', 70000]]);
+    expect(ev.notes.join(' ')).not.toMatch(/if you've had a hike since/);
+    expect(staleSalary(ev.emp, 2026, '2026-10-01')).toBeUndefined();
+  });
+
+  it('a file read by an older reader is read again, keeping the type you chose', () => {
+    const old = { ...docFromText(HIKE, 'appraisal.pdf'), kind: 'offer' as const, facts: {} };
+    expect(rereadDoc(old).kind).toBe('appraisal');
+    expect(rereadDoc(old).facts?.employeeCode).toBe('12345');
+    expect(rereadDoc({ ...old, kindByUser: true }).kind).toBe('offer');
   });
 });

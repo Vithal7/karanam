@@ -32,7 +32,8 @@ export function docHints(s: Scenario, k: number): DocHint[] {
 
   // Salary: the newest file with a breakup is from before this financial year.
   const salaryDocs = e.docs.filter((d) => SALARY_KINDS.includes(d.kind) && dated(d));
-  const newest = salaryDocs.map(dated).sort().pop();
+  const sheetMonths = e.docs.flatMap((d) => Object.entries(d.facts?.monthly ?? {}).filter(([, a]) => a.pay?.basic).map(([m]) => `${m}-01`));
+  const newest = [...salaryDocs.map(dated), ...sheetMonths].sort().pop();
   const userHike = e.revisions.some((r) => !r.source?.startsWith('doc:'));
   if (workedThisYear && newest && newest < from && !userHike && !e.asked?.payChanged) {
     out.push({

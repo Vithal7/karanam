@@ -6,7 +6,7 @@ import { buildStory, buildTimeline } from './domain/story';
 import type { DocRecord, Employment, Facts } from './domain/types';
 import { applyEvents } from './extract/events';
 import { companyKey } from './extract/facts';
-import { assignDocs, blankJob, docFromText, docsFromText, orderJobs } from './extract/intake';
+import { assignDocs, blankJob, docFromText, docsFromText, orderJobs, READER_VERSION, rereadDoc } from './extract/intake';
 import { applyDocs, mergeDocs, baseDocs } from './extract/merge';
 import { isNote } from './extract/note';
 import { type Rules } from './rules';
@@ -108,8 +108,23 @@ function rebuild(x0: AppState, ids: Iterable<string>, rules: Rules): AppState {
   return out;
 }
 
+/** Files added with an older version of the reader: read them again, so its fixes reach them. */
+function withNewReader(x: AppState, rules: Rules): AppState {
+  if (x.readerVersion === READER_VERSION) return x;
+  const employers = x.scenario.employers.map((e) => ({ ...e, docs: e.docs.map(rereadDoc) }));
+  const out = { ...x, readerVersion: READER_VERSION, inbox: x.inbox.map(rereadDoc), scenario: { ...x.scenario, employers } };
+  try {
+    return rebuild(out, employers.filter((e) => e.docs.length).map((e) => e.id), rules);
+  } catch {
+    return { ...x, readerVersion: READER_VERSION };
+  }
+}
+
 export function App() {
-  const [st, setSt] = useState<AppState>(() => load() ?? initialState());
+  const [st, setSt] = useState<AppState>(() => {
+    const saved = load();
+    return saved ? withNewReader(saved, activeRules()) : initialState();
+  });
   const [rules, setRules] = useState<Rules>(() => activeRules());
   const [rulesBanner, setRulesBanner] = useState(false);
   // Desktop: the menu is a sidebar you can collapse; remembered on this device.
@@ -265,7 +280,7 @@ export function App() {
   const reclassify = (jobId: string, docId: string, kind: DocRecord['kind']) =>
     setSt((x) => {
       const employers = x.scenario.employers.map((j) =>
-        j.id === jobId ? { ...j, docs: j.docs.map((d) => (d.id !== docId ? d : d.text ? docFromText(d.text, d.name, d.id, kind) : { ...d, kind })) } : j,
+        j.id === jobId ? { ...j, docs: j.docs.map((d) => (d.id !== docId ? d : { ...(d.text ? docFromText(d.text, d.name, d.id, kind) : { ...d, kind }), kindByUser: true })) } : j,
       );
       return rebuild({ ...x, scenario: { ...x.scenario, employers } }, [jobId], rules);
     });

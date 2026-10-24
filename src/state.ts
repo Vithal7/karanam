@@ -1,3 +1,4 @@
+import { READER_VERSION } from './extract/intake';
 import { MAX_EMPLOYERS } from './domain/compute';
 import { addMonths, fyEnd, fyOf, fyStart, maxDate, monthOf } from './domain/fy';
 import type { DocRecord, Employment, Scenario, Structure } from './domain/types';
@@ -11,6 +12,8 @@ export type FieldMarks = Partial<Record<string, Mark>>;
 
 export interface AppState {
   v: 3;
+  /** Which version of the file reader read the saved files (see READER_VERSION). */
+  readerVersion?: number;
   step: StepId;
   history: StepId[];
   scenario: Scenario;
@@ -82,6 +85,7 @@ export function initialState(): AppState {
   const today = todayISO();
   return {
     v: 3,
+    readerVersion: READER_VERSION,
     step: 'upload',
     history: [],
     scenario: {

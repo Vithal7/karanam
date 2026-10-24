@@ -267,6 +267,8 @@ export function staleSalary(e: Employment, fy: number, today: string): string | 
   // The latest thing we know about your pay: a letter, a payslip, your joining, or a hike.
   const known = [
     ...e.docs.filter((d) => d.kind === 'offer' || d.kind === 'appraisal' || d.kind === 'payslip').map((d) => d.docDate ?? d.doj ?? ''),
+    // A tax sheet's month table shows what you were paid each month.
+    ...e.docs.flatMap((d) => Object.entries(d.facts?.monthly ?? {}).filter(([, a]) => a.pay?.basic).map(([m]) => `${m}-01`)),
     e.start,
     ...e.revisions.map((r) => (r.from ? `${r.from}-01` : '')),
   ].filter(Boolean);

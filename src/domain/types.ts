@@ -285,6 +285,8 @@ export interface DocRecord {
   similarKey?: string;
   /** You checked what was read from your note ("Looks right"). */
   confirmed?: boolean;
+  /** You chose its type: reading it again keeps that type. */
+  kindByUser?: boolean;
   /** What this record is in the note it came from: the offer, your current job, leaving it, a hike. */
   noteRole?: 'offer' | 'current' | 'exit' | 'hike' | 'alternative';
   ytdTds?: number;

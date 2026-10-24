@@ -80,8 +80,9 @@ export function orderDocs(docs: DocRecord[]) {
 }
 
 /**
- * A tax sheet's month-by-month pay, read as payslips: one for the last month at each pay level.
- * A month whose basic matches no month beside it (joining or leaving mid-month) isn't a full month's pay.
+ * A tax sheet's month-by-month pay, read as payslips: one for each pay level, dated its last
+ * month, with the month the level began. A month whose basic matches no month beside it (joining
+ * or leaving mid-month) isn't a full month's pay.
  */
 export function sheetSlips(d: DocRecord): DocRecord[] {
   const months = Object.entries(d.facts?.monthly ?? {})
@@ -89,13 +90,22 @@ export function sheetSlips(d: DocRecord): DocRecord[] {
     .sort(([a], [b]) => a.localeCompare(b));
   const basic = (i: number) => months[i]?.[1].pay!.basic;
   const same = (i: number, j: number) => basic(j) !== undefined && Math.abs(basic(i)! - basic(j)!) <= 1;
-  return months
-    .filter((_, i) => (months.length === 1 || same(i, i - 1) || same(i, i + 1)) && !same(i, i + 1))
-    .map(([m, a]) => ({ id: `${d.id}:${m}`, name: d.name, kind: 'payslip' as const, docDate: `${m}-01`, fields: { ...a.pay! }, employer: d.employer }));
+  const full = months.map((_, i) => months.length === 1 || same(i, i - 1) || same(i, i + 1));
+  const out: DocRecord[] = [];
+  months.forEach(([m, a], i) => {
+    if (!full[i] || same(i, i + 1)) return;
+    let first = i;
+    while (first > 0 && same(first, first - 1)) first--;
+    out.push({ id: `${d.id}:${m}`, name: d.name, kind: 'payslip', docDate: `${m}-01`, fields: { ...a.pay! }, employer: d.employer, facts: { effectiveFrom: `${months[first][0]}-01` } });
+  });
+  return out;
 }
 
 /** The files, with each tax sheet's month table also read as payslips. */
 export const withSheetSlips = (docs: DocRecord[]) => [...docs, ...docs.filter((d) => d.kind === 'taxsheet').flatMap(sheetSlips)];
+
+/** A tax sheet's later pay levels: the pay changed in that month (a hike, a restructure). */
+export const sheetChanges = (docs: DocRecord[]) => docs.filter((d) => d.kind === 'taxsheet').flatMap((d) => sheetSlips(d).slice(1));
 
 /**
  * Files that describe the starting salary: offer letters, and payslips from before the first
@@ -105,7 +115,9 @@ export const withSheetSlips = (docs: DocRecord[]) => [...docs, ...docs.filter((d
 const CTC_ONLY = new Set(['employerPf', 'gratuity', 'insurance']);
 
 export function baseDocs(docs0: DocRecord[]): DocRecord[] {
-  const docs = withSheetSlips(docs0);
+  // A later pay level on a tax sheet is a change of pay, not a second opinion on the same pay.
+  const later = new Set(sheetChanges(docs0).map((d) => d.id));
+  const docs = withSheetSlips(docs0).filter((d) => !later.has(d.id));
   const hikes = docs.filter((d) => d.kind === 'appraisal').map((d) => (d.facts?.effectiveFrom ?? d.docDate ?? '').slice(0, 7)).filter(Boolean).sort();
   const first = hikes[0];
   return docs.filter((d) => d.kind === 'offer' || (d.kind === 'payslip' && (!first || !d.docDate || d.docDate.slice(0, 7) < first)));

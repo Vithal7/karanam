@@ -7,7 +7,7 @@ import { addMonths, monthLong, monthOf } from '../domain/fy';
 import { fixedMonthly, noticeShortfall } from '../domain/schedule';
 import type { Employment, FnF, MonthActual, OneTime, Revision, Structure } from '../domain/types';
 import { epfCeiling, type Rules } from '../rules';
-import { orderDocs, withSheetSlips } from './merge';
+import { orderDocs, sheetSlips, withSheetSlips } from './merge';
 
 const scale = (s: Structure, k: number): Structure => ({
   ...s,
@@ -66,7 +66,7 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
   const docs = orderDocs(emp.docs);
   const notes: string[] = [];
   const needs: EventsResult['needs'] = [];
-  const out: Employment = { ...emp, revisions: emp.revisions.filter((r) => r.source !== 'doc:appraisal' && !r.source?.startsWith('doc:appraisal')) };
+  const out: Employment = { ...emp, revisions: emp.revisions.filter((r) => !r.source?.startsWith('doc:appraisal') && !r.source?.startsWith('doc:sheet')) };
 
   // --- Hikes from appraisal letters, oldest first ---
   // A typed "current CTC" with no letter to compare against is the job's pay itself (see merge).
@@ -112,6 +112,22 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
     hikes.push({ from, payoutMonth, structure, ctc, pct: k ? k - 1 : undefined, source: `doc:appraisal:${d.name}`, scaled, gratuity: d.fields.gratuity || undefined, dateGuessed: !f.effectiveFrom || undefined });
     prev = structure;
     prevCtc = ctc ?? prevCtc;
+  }
+
+  // --- A tax sheet whose pay changes mid-year: a dated change, unless a letter already explains it ---
+  for (const d of docs.filter((x) => x.kind === 'taxsheet')) {
+    const levels = sheetSlips(d);
+    levels.slice(1).forEach((c, i) => {
+      const last = monthOf(c.docDate!);
+      const from = monthOf(c.facts!.effectiveFrom!);
+      if (hikes.some((h) => h.from > monthOf(levels[i].docDate!) && h.from <= last)) return;
+      const before = [...hikes].reverse().find((h) => h.from < from)?.structure ?? out.structure;
+      const structure = withComponents(before, c.fields);
+      if (!structure) return;
+      const k = fixedMonthly(before) ? fixedMonthly(structure) / fixedMonthly(before) : undefined;
+      hikes.push({ from, structure, pct: k ? k - 1 : undefined, source: `doc:sheet:${d.name}`, scaled: false });
+      hikes.sort((a, b) => a.from.localeCompare(b.from));
+    });
   }
 
   // --- Payslips after a hike show the real breakup: pin it on that hike ---
@@ -167,7 +183,7 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
 
   // --- Old letters: say how they were used ---
   const base = docs.find((d) => d.kind === 'offer');
-  if (base?.docDate && monthOf(base.docDate) < addMonths(fyStartMonth, -12) && !hikes.length && !docs.some((d) => d.kind === 'payslip' && d.docDate && monthOf(d.docDate) >= fyStartMonth)) {
+  if (base?.docDate && monthOf(base.docDate) < addMonths(fyStartMonth, -12) && !hikes.length && !withSheetSlips(docs).some((d) => d.kind === 'payslip' && d.docDate && monthOf(d.docDate) >= fyStartMonth)) {
     notes.push(
       `${base.name} is from ${monthLong(monthOf(base.docDate))}. It's used as your salary at ${emp.name || 'this job'}; if you've had a hike since, add the appraisal letter or a recent payslip.`,
     );

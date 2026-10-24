@@ -5,6 +5,7 @@ import { applyEvents } from '../events';
 import { classifyDoc } from '../facts';
 import { assignDocs, blankJob, docFromText } from '../intake';
 import { applyDocs } from '../merge';
+import { reconcile, salaryNow } from '../../domain/reconcile';
 
 const OFFER = `Acme Technologies Pvt Ltd
 Date: 10/06/2023
@@ -91,5 +92,26 @@ HRA 25,000 3,00,000 5,000 60,000 30,000 3,60,000`;
   it('an offer letter still reads as an offer', () => {
     expect(classifyDoc(OFFER)).toBe('offer');
     expect(classifyDoc(`Acme Technologies Pvt Ltd\nDate of Joining: 01-Jul-2026\nYour date of joining is 1 July 2026.\nYou will be eligible for an annual increment.`)).toBe('offer');
+  });
+
+  it('the salary now is the hike in effect, checked against its own CTC less the variable part', () => {
+    const t = `Acme Technologies Pvt Ltd
+Date: 15 June 2026
+Your total annual compensation (TCTC) has been revised to Rs. 24,00,000/- effective 1st April, 2026.
+Component Amount (Rs. per annum)
+Fixed CTC 20,00,000/-
+Variable CTC 4,00,000/-
+Total CTC 24,00,000/-`;
+    const docs = [docFromText(OFFER, 'offer.pdf'), docFromText(t, 'hike.pdf')];
+    const job = assignDocs([blankJob('New job', '2026-04-01')], docs, 2026).employers[0];
+    const emp = applyEvents(applyDocs(job, {}, bundledRules).emp, bundledRules, '2026-04').emp;
+    expect(emp.revisions[0]).toMatchObject({ ctc: 2_400_000, variable: 400_000 });
+    const now = salaryNow(emp, '2026-10-01');
+    expect(now.index).toBe(0);
+    expect(now.emp.ctc).toBe(2_400_000);
+    expect(now.emp.variable?.annual).toBe(400_000);
+    expect(reconcile(now.emp, now.structure, now.month, bundledRules)?.variable).toBeCloseTo(400_000 / 12);
+    // Before the hike starts, it's the joining salary.
+    expect(salaryNow(emp, '2026-03-15').index).toBe(-1);
   });
 });

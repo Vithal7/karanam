@@ -1,6 +1,8 @@
 import { useState } from 'preact/hooks';
-import { fyStart, maxDate, monthOf } from '../../domain/fy';
-import type { DocKind, Employment, OneTime, Scenario } from '../../domain/types';
+import { addMonths, fyLabel, fyStart, maxDate, monthLong, monthOf } from '../../domain/fy';
+import { salaryNow } from '../../domain/reconcile';
+import { fixedMonthly } from '../../domain/schedule';
+import type { DocKind, Employment, OneTime, Revision, Scenario } from '../../domain/types';
 import type { Choices } from '../../extract/merge';
 import { rs } from '../../format';
 import type { FieldMarks } from '../../state';
@@ -52,6 +54,34 @@ export function JobEditStep(props: {
     const base: OneTime = joining ?? { id: 'joining', label: 'Joining bonus', kind: 'joining', amount: 0, month: monthOf(e.start || s.today), taxable: true };
     set({ oneTimes: [...rest, { ...base, ...patch }] });
   };
+
+  // The salary you joined on: the whole story for a job without hikes, history for one with them.
+  const joiningSalary = (
+    <>
+      <StructureEditor emp={e} value={e.structure} marks={props.marks} sources={props.sources} month={monthOf(maxDate(e.start || fyStart(s.fy), fyStart(s.fy)))} onChange={(x) => set({ structure: x })} />
+      <div class="card">
+        <Field label="CTC (per year)" mark={props.marks.ctc} hint="From the letter. Used to size hikes given as a new CTC, and for the CTC vs in-hand comparison.">
+          <Money value={e.ctc} onChange={(v) => set({ ctc: v })} ariaLabel="CTC per year" />
+        </Field>
+      </div>
+      <ReconcileCard
+        emp={e}
+        structure={e.structure}
+        month={monthOf(maxDate(e.start || fyStart(s.fy), fyStart(s.fy)))}
+        onAddAllowance={(m) => set({ structure: { ...e.structure, others: [...e.structure.others, { name: 'Other allowance', amount: m }] } })}
+      />
+    </>
+  );
+  const now = isNew && e.start > s.today ? { index: -1, emp: e, structure: e.structure, month: '' } : salaryNow(e, s.today);
+  const cur = now.index >= 0 ? e.revisions[now.index] : undefined;
+  const setNow = (patch: Partial<Revision>) => set({ revisions: e.revisions.map((r, i) => (i === now.index ? { ...r, ...patch } : r)) });
+  const hikeFile = cur?.source?.match(/^doc:(?:appraisal|sheet):(.+)$/)?.[1];
+  // Which months of this year the joining salary still pays.
+  const firstHike = e.revisions.map((r) => r.from).filter(Boolean).sort()[0];
+  const fromMonth = monthOf(maxDate(e.start || fyStart(s.fy), fyStart(s.fy)));
+  const earlierMonths =
+    !firstHike || firstHike <= fromMonth ? '' : firstHike === addMonths(fromMonth, 1) ? monthLong(fromMonth) : `${monthLong(fromMonth)} to ${monthLong(addMonths(firstHike, -1))}`;
+  const earlierUse = earlierMonths ? `Your earlier salary is used for ${earlierMonths}.` : `Your earlier salary doesn't affect ${fyLabel(s.fy)}.`;
 
   return (
     <>
@@ -113,21 +143,43 @@ export function JobEditStep(props: {
         <>
           <DocsPanel emp={e} choices={props.choices} onAdd={props.onAddFiles} onRemove={props.onRemoveDoc} onChoose={props.onChoose} onReclassify={props.onReclassify} onEditText={props.onEditText} />
           <Warnings items={props.warnings} />
-          <h2 class="section">Salary {e.revisions.length ? 'when you joined' : ''}</h2>
-          <StructureEditor emp={e} value={e.structure} marks={props.marks} sources={props.sources} month={monthOf(maxDate(e.start || fyStart(s.fy), fyStart(s.fy)))} onChange={(x) => set({ structure: x })} />
-          <div class="card">
-            <Field label="CTC (per year)" mark={props.marks.ctc} hint="From the letter. Used to size hikes given as a new CTC, and for the CTC vs in-hand comparison.">
-              <Money value={e.ctc} onChange={(v) => set({ ctc: v })} ariaLabel="CTC per year" />
-            </Field>
-          </div>
-          <ReconcileCard
-            emp={e}
-            structure={e.structure}
-            month={monthOf(maxDate(e.start || fyStart(s.fy), fyStart(s.fy)))}
-            onAddAllowance={(m) => set({ structure: { ...e.structure, others: [...e.structure.others, { name: 'Other allowance', amount: m }] } })}
-          />
-          <LocationCard emp={e} rules={rules} onChange={props.onChange} />
-          <HikesEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} today={s.today} />
+          {now.index >= 0 ? (
+            <>
+              {/* On a hike already: today's pay is what you check. The joining salary only covers the months before it. */}
+              <h2 class="section">{e.end && e.end < s.today ? 'Your last salary' : 'Your salary now'}</h2>
+              <p class="muted small">
+                From {monthLong(cur!.from)}
+                {hikeFile ? `, from ${hikeFile}` : ''}. {earlierUse}
+              </p>
+              <StructureEditor emp={e} value={cur!.structure} month={now.month} onChange={(x) => setNow({ structure: x, scaled: false })} />
+              <div class="card">
+                <Field label="CTC now (per year)" hint="From your latest increment letter. Used for the CTC vs in-hand comparison.">
+                  <Money value={cur!.ctc ?? 0} onChange={(v) => setNow({ ctc: v || undefined })} ariaLabel="CTC now per year" />
+                </Field>
+              </div>
+              <ReconcileCard
+                emp={now.emp}
+                structure={cur!.structure}
+                month={now.month}
+                onAddAllowance={(m) => setNow({ structure: { ...cur!.structure, others: [...cur!.structure.others, { name: 'Other allowance', amount: m }] } })}
+              />
+              <LocationCard emp={e} rules={rules} onChange={props.onChange} />
+              <HikesEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} today={s.today} editedAbove={now.index} />
+              <details class="card earlier-pay">
+                <summary>
+                  Earlier salary <span class="muted small">· {rs(fixedMonthly(e.structure))} a month · {earlierMonths ? `paid ${earlierMonths}` : `not in ${fyLabel(s.fy)}`}</span>
+                </summary>
+                {joiningSalary}
+              </details>
+            </>
+          ) : (
+            <>
+              <h2 class="section">Salary</h2>
+              {joiningSalary}
+              <LocationCard emp={e} rules={rules} onChange={props.onChange} />
+              <HikesEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} today={s.today} />
+            </>
+          )}
           <LopEditor emp={e} fy={s.fy} thirty={thirty} onChange={props.onChange} />
 
           {(isNew || index > 0) && (

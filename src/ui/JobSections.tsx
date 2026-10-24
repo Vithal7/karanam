@@ -72,7 +72,7 @@ export function ClawbackTermsEditor(props: { bonus: OneTime; onChange: (patch: P
 }
 
 /** Hikes during a job: when each applied, when it was first paid, and the new salary. */
-export function HikesEditor(props: { emp: Employment; fy: number; thirty: boolean; onChange: (e: Employment) => void; today: string }) {
+export function HikesEditor(props: { emp: Employment; fy: number; thirty: boolean; onChange: (e: Employment) => void; today: string; /** This hike's breakup is shown as "Your salary now". */ editedAbove?: number }) {
   const e = props.emp;
   const set = (i: number, patch: Partial<Revision>) => props.onChange({ ...e, revisions: e.revisions.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
   const arrears = arrearsFor(e, props.thirty);
@@ -86,7 +86,7 @@ export function HikesEditor(props: { emp: Employment; fy: number; thirty: boolea
         const pct = fixedMonthly(prev) ? fixedMonthly(r.structure) / fixedMonthly(prev) - 1 : 0;
         const a = arrears.find((x) => x.month === r.payoutMonth);
         return (
-          <details class="hike" open={n === sorted.length - 1}>
+          <details class="hike" open={n === sorted.length - 1 && i !== props.editedAbove}>
             <summary>
               <strong>From {r.from ? monthLong(r.from) : '…'}</strong>
               <span class="muted small">
@@ -107,7 +107,11 @@ export function HikesEditor(props: { emp: Employment; fy: number; thirty: boolea
               <Money value={r.ctc ?? 0} onChange={(v) => set(i, { ctc: v || undefined })} ariaLabel="New CTC" />
             </Field>
             {r.scaled && <p class="note">The letter gave only the total, so every component was raised by the same %. Fix the breakup below if your payslip shows otherwise.</p>}
-            <StructureEditor emp={e} value={r.structure} month={r.payoutMonth ?? r.from} onChange={(x) => set(i, { structure: x, scaled: false })} />
+            {i === props.editedAbove ? (
+              <p class="muted small">Its breakup is under “Your salary now” above.</p>
+            ) : (
+              <StructureEditor emp={e} value={r.structure} month={r.payoutMonth ?? r.from} onChange={(x) => set(i, { structure: x, scaled: false })} />
+            )}
             <button type="button" class="btn small ghost" onClick={() => props.onChange({ ...e, revisions: e.revisions.filter((_, j) => j !== i) })}>
               Remove this hike
             </button>

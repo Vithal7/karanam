@@ -29,7 +29,7 @@ export function classifyDoc(text: string): DocKind {
     appraisal:
       2 *
         has(
-          /appraisal|increment|salary\s+revision|revised\s+(annual\s+)?(ctc|compensation|salary|pay|package)|compensation\s+revision|merit\s+increase|annual\s+review|performance\s+review|promot(ed|ion)|(salary|compensation|ctc|pay|package|remuneration)\s+(has|have)\s+been\s+(revised|increased|enhanced|raised|re-?fixed)|revision\s+(of|in)\s+(your\s+)?(salary|compensation|ctc|pay|remuneration)|(salary|compensation|pay)\s+review/,
+          /appraisal|increment|salary\s+revision|revised\s+(annual\s+)?(ctc|compensation|salary|pay|package)|compensation\s+revision|merit\s+increase|annual\s+review|performance\s+review|promot(ed|ion)|(salary|compensation|ctc|pay|package|remuneration)(\s*\([^)]*\))?\s+(has|have)\s+been\s+(revised|increased|enhanced|raised|re-?fixed)|revision\s+(of|in)\s+(your\s+)?(salary|compensation|ctc|pay|remuneration)|(salary|compensation|pay)\s+review/,
           text,
         ) +
       has(/\bhike\b|with\s+effect\s+from|w\.?e\.?f/, text),
@@ -144,6 +144,8 @@ export function extractFacts(text: string, kind: DocKind): Facts {
       100_000,
     );
     f.oldCtc ??= moneyAfter(flat, /(current|existing|present|previous)\s+(annual\s+)?(ctc|cost\s+to\s+(the\s+)?company|compensation|package)(\s+(of|is|:))?/, 60, 100_000);
+    // "Fixed CTC 21,00,000 / Variable CTC 3,00,000 / Total CTC 24,00,000": the rest is variable pay.
+    f.fixedCtc = moneyAfter(flat, /fixed\s+(ctc|cost\s+to\s+(the\s+)?company|compensation|pay|component)(\s*\([^)]*\))?\s*[:\-]?/, 40, 100_000);
   }
 
   if (kind === 'resignation' || kind === 'fnf') {

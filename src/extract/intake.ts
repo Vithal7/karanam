@@ -70,7 +70,7 @@ export function docFromText(text: string, name: string, id = uid(), kind?: DocRe
 }
 
 /** Bump when reading changes: files you added earlier are read again with the new reader. */
-export const READER_VERSION = 2;
+export const READER_VERSION = 3;
 
 /**
  * A file read again from its saved text, keeping what you decided about it: its type if you chose

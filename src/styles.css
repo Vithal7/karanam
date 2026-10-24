@@ -1164,6 +1164,17 @@ ul.story li.info {
 .story-short[open] summary {
   margin-bottom: 10px;
 }
+details.earlier-pay summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+details.earlier-pay[open] summary {
+  margin-bottom: 12px;
+}
+details.earlier-pay .card {
+  box-shadow: none;
+  padding: 12px;
+}
 details.hike {
   border-top: 1px solid var(--border);
   padding: 10px 0;

@@ -58,6 +58,8 @@ export interface Revision {
   scaled?: boolean;
   /** Monthly gratuity / ex gratia accrual in the CTC from this hike; empty = scaled with basic. */
   gratuity?: number;
+  /** Yearly variable pay inside the revised CTC ("Fixed CTC" + "Variable CTC" = total). */
+  variable?: number;
 }
 
 export type OneTimeKind = 'joining' | 'variable' | 'bonus' | 'leaveEncashment' | 'buyout' | 'other';
@@ -216,6 +218,8 @@ export interface Facts {
   penalty?: number;
   buyout?: { mode: 'actuals' | 'cap'; cap?: number; includesClawback?: boolean };
   joiningClawbackMonths?: number;
+  /** A hike letter's fixed part of the revised CTC (the rest is variable pay). */
+  fixedCtc?: number;
   /** Joining date stated in a payroll or HR paper's employee details. */
   joinedOn?: string;
   /** Employee code / ID: the same code on two papers is the same job. */

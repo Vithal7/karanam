@@ -109,7 +109,8 @@ export function applyEvents(emp: Employment, rules: Rules, fyStartMonth: string)
     }
     const ctc = revisedCtc ?? (prevCtc && k ? Math.round(prevCtc * k) : undefined);
     const payoutMonth = f.payoutMonth && f.payoutMonth > from ? f.payoutMonth : undefined;
-    hikes.push({ from, payoutMonth, structure, ctc, pct: k ? k - 1 : undefined, source: `doc:appraisal:${d.name}`, scaled, gratuity: d.fields.gratuity || undefined, dateGuessed: !f.effectiveFrom || undefined });
+    const variable = ctc && f.fixedCtc && f.fixedCtc < ctc ? ctc - f.fixedCtc : d.fields.variable || undefined;
+    hikes.push({ from, payoutMonth, structure, ctc, pct: k ? k - 1 : undefined, source: `doc:appraisal:${d.name}`, scaled, gratuity: d.fields.gratuity || undefined, variable, dateGuessed: !f.effectiveFrom || undefined });
     prev = structure;
     prevCtc = ctc ?? prevCtc;
   }

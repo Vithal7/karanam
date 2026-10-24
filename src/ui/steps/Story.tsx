@@ -7,7 +7,7 @@ import { CompanyCards } from '../CompanyCards';
 import { DOC_KIND_SHORT } from '../docKinds';
 import type { AsideDoc } from '../../extract/intake';
 import { Continue } from '../Continue';
-import { reconcile } from '../../domain/reconcile';
+import { reconcile, salaryNow } from '../../domain/reconcile';
 import { rs } from '../../format';
 import { useRules } from '../rulesContext';
 import { ExitQuestion, exitQuestionFor } from '../ExitQuestion';
@@ -317,7 +317,9 @@ export function StoryStep(props: {
                   <HikeQuestion need={need} onAnswer={(f) => props.onAnswerHike(e.id, need.docId, f)} />
                 ))}
                 {clarify && (() => {
-                  const rc = reconcile(e, e.structure, e.start > `${s.fy}-04-01` ? e.start.slice(0, 7) : `${s.fy}-04`, rules);
+                  // The salary you're on now, against the CTC that goes with it.
+                  const now = salaryNow(e, s.today);
+                  const rc = reconcile(now.emp, now.structure, now.index >= 0 ? now.month : e.start > `${s.fy}-04-01` ? e.start.slice(0, 7) : `${s.fy}-04`, rules);
                   return rc && !rc.ok ? (
                     <p class="callout warn small">
                       The salary breakup {rc.gap > 0 ? `is ${rs(rc.gap)} a month short of` : `is ${rs(-rc.gap)} a month more than`} what the CTC implies. Open "Check the

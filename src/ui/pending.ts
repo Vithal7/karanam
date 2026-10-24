@@ -1,6 +1,6 @@
 import { validateEmployers } from '../domain/compute';
 import { fyStart } from '../domain/fy';
-import { reconcile } from '../domain/reconcile';
+import { reconcile, salaryNow } from '../domain/reconcile';
 import type { Employment, Scenario } from '../domain/types';
 import type { Rules } from '../rules';
 import type { AppState } from '../state';
@@ -68,7 +68,9 @@ export function pendingItems(st: AppState, s: Scenario, rules: Rules, openConfli
     if (!e.location?.state || e.location.source === 'guess') out.push({ job: e.id, text: `Where you work at ${name} (professional tax depends on the state)` });
     else if (ptRuleFor(e, rules) === undefined) out.push({ job: e.id, text: `${name}: check the professional tax on your payslip`, soft: true });
     if (needsPrevVariable(e, s.fy)) out.push({ job: e.id, text: `${name}: last year's variable pay` });
-    const rc = e.structure.basic ? reconcile(e, e.structure, e.start > fyStart(s.fy) ? e.start.slice(0, 7) : `${s.fy}-04`, rules) : null;
+    // The salary you're on now, against the CTC that goes with it.
+    const now = salaryNow(e, s.today);
+    const rc = now.structure.basic ? reconcile(now.emp, now.structure, now.index >= 0 ? now.month : e.start > fyStart(s.fy) ? e.start.slice(0, 7) : `${s.fy}-04`, rules) : null;
     if (rc && !rc.ok) out.push({ job: e.id, text: `${name}: the salary breakup doesn't add up to the CTC`, soft: true });
   });
   return out;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { fnfItems, gratuityWages } from '../compute';
+import { exGratiaPeriods, fnfItems, gratuityWages } from '../compute';
+import { needsExGratia } from '../../ui/Questions';
 import type { Employment, Structure } from '../types';
 
 const st = (basic: number, hra: number, special: number, others: Structure['others'] = []): Structure => ({ basic, hra, special, others, epfMode: 'statutory', epf: 0, pt: 200, npsPct: 0, npsInGross: false });
@@ -63,5 +64,24 @@ describe('fixed-term contracts', () => {
   });
   it('under a year: nothing', () => {
     expect(fnfItems(job('2026-01-01', '2026-06-30', st(40000, 20000, 20000), { fixedTerm: true }), 2026)!.gratuity).toBe(0);
+  });
+});
+
+describe('ex gratia when the letters give no gratuity figure', () => {
+  // Breakup from a tax sheet, CTC from the offer, no gratuity line anywhere.
+  const e = job('2025-01-20', '2026-11-11', st(60000, 30000, 20000), {
+    ctc: 2_000_000,
+    revisions: [{ from: '2026-07', structure: st(70000, 35000, 25000) }],
+    fnf: { leaveDays: 0, noticeDaysRecovered: 0, clawback: 0, exGratia: true },
+  });
+  it('accrues at the usual 4.81% of basic, following the hike', () => {
+    const p = exGratiaPeriods(e);
+    expect(p.map((x) => x.monthly)).toEqual([2886, 3367]);
+  });
+  it('is still asked about', () => {
+    expect(needsExGratia({ ...e, startSource: 'doc', fnf: { ...e.fnf!, exGratia: undefined } }, true)).toBe(true);
+  });
+  it('without a CTC there is nothing to go on', () => {
+    expect(exGratiaPeriods({ ...e, ctc: 0 })).toEqual([]);
   });
 });

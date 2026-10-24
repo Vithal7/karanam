@@ -222,7 +222,7 @@ export function NoticeQuestion(props: { emp: Employment; fy: number; thirty: boo
 
 const serviceYears = (e: Employment) => (e.start && e.end ? (Date.parse(e.end) - Date.parse(e.start)) / (365.25 * 86_400_000) : 0);
 
-/** Leaving before 5 years with a gratuity rate in the CTC: is ex gratia paid in its place? */
+/** Leaving before 5 years on a CTC: is the gratuity in it paid anyway, as ex gratia? */
 export const needsExGratia = (e: Employment, leaving: boolean) =>
   leaving &&
   !e.fixedTerm &&
@@ -236,7 +236,8 @@ export const needsExGratia = (e: Employment, leaving: boolean) =>
   e.fnf.exGratia === undefined &&
   serviceYears(e) > 0 &&
   serviceYears(e) < 4 + 240 / 365 &&
-  !!(e.ctcParts?.gratuity || e.revisions.some((r) => r.gratuity));
+  // A gratuity rate in the CTC, or a CTC at all (it usually carries 4.81% of basic).
+  !!(e.ctcParts?.gratuity || e.revisions.some((r) => r.gratuity) || e.ctc);
 
 export function ExGratiaQuestion(props: { emp: Employment; fy: number; thirty: boolean; onChange: (e: Employment) => void }) {
   const e = props.emp;

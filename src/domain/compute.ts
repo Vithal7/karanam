@@ -95,9 +95,11 @@ export function calendarMonths(from: string, to: string): number {
  * until the first hike, then each hike's rate (given, or scaled with basic) until the next.
  */
 export function exGratiaPeriods(emp: Employment): GratuityPeriod[] {
-  const g0 = emp.ctcParts?.gratuity;
-  if (!g0 || !emp.start || !emp.end || emp.end < emp.start) return [];
   const b0 = emp.structure.basic;
+  // No gratuity figure in the letters (the breakup came from payslips or a tax sheet): the usual
+  // 4.81% of basic that CTCs carry.
+  const g0 = emp.ctcParts?.gratuity || (emp.ctc && b0 ? Math.round(USUAL_GRATUITY_RATE * b0) : 0);
+  if (!g0 || !emp.start || !emp.end || emp.end < emp.start) return [];
   const revs = emp.revisions.map((r, i) => ({ r, i })).filter((x) => x.r.from).sort((a, b) => a.r.from.localeCompare(b.r.from));
   const cuts: { from: string; monthly: number; scaled: boolean; rev: number }[] = [{ from: emp.start, monthly: g0, scaled: false, rev: -1 }];
   for (const { r, i } of revs) {
@@ -173,6 +175,9 @@ export function fnfItems(emp: Employment, fy: number, thirty = false): FnFItems 
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 
+/** Gratuity in a CTC is usually 4.81% of basic (15/26 of a month's basic each year). */
+export const USUAL_GRATUITY_RATE = 0.0481;
+
 /** 4 years and 240 days counts as 5 years for gratuity. */
 const GRATUITY_MIN_YEARS = 4 + 240 / 365;
 
@@ -242,7 +247,9 @@ export function gratuityFor(emp: Employment, st: Structure, f: NonNullable<Emplo
     ...none,
     gratuity: amount,
     gratuityKind: 'exgratia' as const,
-    gratuityLabel: periods.map((p) => `${inr(p.monthly)}/month × ${p.months.toFixed(1)} months`).join(' + '),
+    gratuityLabel:
+      periods.map((p) => `${inr(p.monthly)}/month × ${p.months.toFixed(1)} months`).join(' + ') +
+      (emp.ctcParts?.gratuity || emp.revisions.some((r) => r.gratuity) ? '' : ' (your letters don\'t state the gratuity in your CTC: the usual 4.81% of basic)'),
     gratuityPeriods: periods,
   };
 }
